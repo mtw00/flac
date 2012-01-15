@@ -76,8 +76,8 @@ func FLACParseStreaminfoBlock (block []byte) (sib FLACStreaminfoBlock) {
 	<36>  - Total number of samples in the stream. 0 == Implied Unknown
 	<128> - MD5 signature of the unencoded audio data.
 
-	In order to keep everything on powers-of-2 boundaries, the reads from the
-	header are grouped thus:
+	In order to keep everything on powers-of-2 boundaries, reads from the
+	block are grouped thus:
 
 		minBlockSize = 16 bits
 		maxBlockSize + minFrameSize + maxFrameSize = 64 bits
@@ -117,11 +117,12 @@ func FLACParseStreaminfoBlock (block []byte) (sib FLACStreaminfoBlock) {
 
 type FLACVorbisCommentBlock struct {
 	Vendor string
-	Tags []string
+	Comments []string
 }
 
 func FLACParseVorbisCommentBlock (block []byte) (vcb FLACVorbisCommentBlock) {
 	/*
+	http://www.xiph.org/vorbis/doc/v-comment.html
 	The comment header is decoded as follows:
 
 		1) [vendor_length] = read an unsigned integer of 32 bits
@@ -149,7 +150,7 @@ func FLACParseVorbisCommentBlock (block []byte) (vcb FLACVorbisCommentBlock) {
 	for totalComments > 0 {
 		aCommentLen = binary.LittleEndian.Uint32(b.Next(4))
 		aComment = string(b.Next(int(aCommentLen)))
-		vcb.Tags = append(vcb.Tags, aComment)
+		vcb.Comments = append(vcb.Comments, aComment)
 		totalComments--
 	}
 	return vcb
@@ -194,11 +195,12 @@ func main() {
 			fmt.Println("  ", *fileName, "StreamInfo =", StreaminfoBlock)
 		} else if HeaderType(mbh.Type) == "VORBIS_COMMENT" {
 			VorbisCommentBlock := FLACParseVorbisCommentBlock(buf.Next(int(mbh.Length)))
-			for i, v := range(VorbisCommentBlock.Tags) {
-				fmt.Printf("comment[%d] = %s\n", i, v)
+			for i, v := range(VorbisCommentBlock.Comments) {
+				fmt.Printf("      comment[%d]: %s\n", i, v)
 			}
 		} else {
 			_ = buf.Next(int(mbh.Length))
 		}
+		fmt.Printf("\n")
 	}
 }
