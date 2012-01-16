@@ -6,7 +6,6 @@ TODO:
 	FLACParseCuesheetTrack()
 	FLACPraseSeektableBlock()
 	FLACParseSeekpoint()
-	FLACParsePictureBlock()
 */	
 
 package main
@@ -148,8 +147,8 @@ func FLACParseVorbisCommentBlock (block []byte) (vcb FLACVorbisCommentBlock) {
 	aComment := ""
 	b := bytes.NewBuffer(block)
 
-	vendorLen := binary.LittleEndian.Uint32(b.Next(4))
-	vcb.Vendor = string(b.Next(int(vendorLen)))
+	vendorLen := int(binary.LittleEndian.Uint32(b.Next(4)))
+	vcb.Vendor = string(b.Next(vendorLen))
 	
 	vcb.TotalComments = binary.LittleEndian.Uint32(b.Next(4))
 
@@ -158,6 +157,82 @@ func FLACParseVorbisCommentBlock (block []byte) (vcb FLACVorbisCommentBlock) {
 		vcb.Comments = append(vcb.Comments, aComment)
 	}
 	return vcb
+}
+
+type FLACPictureBlock struct {
+	PictureType         string
+	MimeType            string
+	PictureDescription  string
+	Width               uint32
+	Height              uint32
+	ColorDepth          uint32
+	NumColors           uint32
+	Length              uint32
+	PictureBlob			[]byte
+}	
+
+var PictureTypeMap = map[uint32] string {
+	0: "Other",
+	1: "File Icon",
+	2: "Other File Icon",
+	3: "Cover (front)",
+	4: "Cover (back)",
+	5: "Leaflet Page",
+	6: "Media",
+	7: "Lead Artist/Lead Performer/Soloist",
+	8: "Artist/Performer",
+	9: "Conductor",
+	10: "Band/Orchestra",
+	11: "Composer",
+	12: "Lyricist/Text Writer",
+	13: "Recording Location",
+	14: "During Recording",
+	15: "During Performance",
+	16: "Movie/Video Screen Capture",
+	17: "A Bright Coloured Fish",
+	18: "Illustration",
+	19: "Band/Artist Logotype",
+	20: "Publisher/Studio Logotype",
+}
+
+func LookupPictureType(k uint32) string {
+	return PictureTypeMap[k]
+}
+
+func FLACParsePictureBlock (block []byte) (pb FLACPictureBlock) {
+	/*
+	<32>	 The picture type according to the ID3v2 APIC frame:
+	<32>	 The length of the MIME type string in bytes.
+	<n*8>	 The MIME type string, in printable ASCII characters 0x20-0x7e. The MIME type may also be --> to signify that the data part is a URL of the picture instead of the picture data itself.
+	<32>	 The length of the description string in bytes.
+	<n*8>	 The description of the picture, in UTF-8.
+	<32>	 The width of the picture in pixels.
+	<32>	 The height of the picture in pixels.
+	<32>	 The color depth of the picture in bits-per-pixel.
+	<32>	 For indexed-color pictures (e.g. GIF), the number of colors used, or 0 for non-indexed pictures.
+	<32>	 The length of the picture data in bytes.
+	<n*8>	 The binary picture data.
+	*/
+	b := bytes.NewBuffer(block)
+
+	pb.PictureType = LookupPictureType(binary.BigEndian.Uint32(b.Next(4)))
+
+	mimeLen := int(binary.BigEndian.Uint32(b.Next(4)))
+	fmt.Println("mimeLen ==", mimeLen)
+	pb.MimeType = string(b.Next(mimeLen))
+
+	descLen := int(binary.BigEndian.Uint32(b.Next(4)))
+	fmt.Println("descLen ==", descLen)
+	if descLen != 0 {
+		pb.PictureDescription = string(binary.BigEndian.Uint32(b.Next(descLen)))
+	}
+	pb.Width = binary.BigEndian.Uint32(b.Next(4))
+	pb.Height = binary.BigEndian.Uint32(b.Next(4))
+	pb.ColorDepth = binary.BigEndian.Uint32(b.Next(4))
+	pb.NumColors = binary.BigEndian.Uint32(b.Next(4))
+	pb.Length = binary.BigEndian.Uint32(b.Next(4))
+
+	return pb
 }
 
 func main() {
@@ -210,6 +285,9 @@ func main() {
 			for i, v := range(vcb.Comments) {
 				fmt.Printf("    comment[%d]: %s\n", i, v)
 			}
+		} else if HeaderType(mbh.Type) == "PICTURE" {
+			pb := FLACParsePictureBlock(buf.Next(int(mbh.Length)))
+			fmt.Println(pb)
 		} else {
 			_ = buf.Next(int(mbh.Length))
 		}
