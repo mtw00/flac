@@ -52,15 +52,15 @@ func FLACParseMetadataBlockHeader (block uint32) (mbh FLACMetadataBlockHeader) {
 }
 
 type FLACStreaminfoBlock struct {
-	minBlockSize	uint16
-	maxBlockSize	uint16
-	minFrameSize	uint32
-	maxFrameSize	uint32
-	sampleRate		uint32
-	channels		uint8
-	bitsPerSample	uint8
-	totalSamples	uint64
-	md5Signature	string
+	MinBlockSize	uint16
+	MaxBlockSize	uint16
+	MinFrameSize	uint32
+	MaxFrameSize	uint32
+	SampleRate		uint32
+	Channels		uint8
+	BitsPerSample	uint8
+	TotalSamples	uint64
+	MD5Signature	string
 }
 	
 func FLACParseStreaminfoBlock (block []byte) (sib FLACStreaminfoBlock) {
@@ -79,9 +79,9 @@ func FLACParseStreaminfoBlock (block []byte) (sib FLACStreaminfoBlock) {
 	In order to keep everything on powers-of-2 boundaries, reads from the
 	block are grouped thus:
 
-		minBlockSize = 16 bits
-		maxBlockSize + minFrameSize + maxFrameSize = 64 bits
-		sampleRate + channels + bitsPerSample + TotalSamples = 64 bits
+		MinBlockSize = 16 bits
+		MaxBlockSize + minFrameSize + maxFrameSize = 64 bits
+		SampleRate + channels + bitsPerSample + TotalSamples = 64 bits
 		md5Signature = 128 bits
 	*/
 
@@ -97,26 +97,27 @@ func FLACParseStreaminfoBlock (block []byte) (sib FLACStreaminfoBlock) {
 		totSampMask uint64 =       0x0000000FFFFFFFFF
 	)
 
-	sib.minBlockSize = binary.BigEndian.Uint16(b.Next(2))
+	sib.MinBlockSize = binary.BigEndian.Uint16(b.Next(2))
 
 	bigint = binary.BigEndian.Uint64(b.Next(8))
-	sib.maxBlockSize = uint16((minFSMask & bigint)>>48)
-	sib.minFrameSize = uint32((minFSMask & bigint)>>24)
-	sib.maxFrameSize = uint32(maxFSMask & bigint)
+	sib.MaxBlockSize = uint16((minFSMask & bigint)>>48)
+	sib.MinFrameSize = uint32((minFSMask & bigint)>>24)
+	sib.MaxFrameSize = uint32(maxFSMask & bigint)
 
 	bigint = binary.BigEndian.Uint64(b.Next(8))
-	sib.sampleRate = uint32((sampRateMask & bigint)>>44)
-	sib.channels = uint8((chMask & bigint)>>41) + 1
-	sib.bitsPerSample = uint8((bitsPerSampMask & bigint)>>36) + 1
-	sib.totalSamples = bigint & totSampMask
+	sib.SampleRate = uint32((sampRateMask & bigint)>>44)
+	sib.Channels = uint8((chMask & bigint)>>41) + 1
+	sib.BitsPerSample = uint8((bitsPerSampMask & bigint)>>36) + 1
+	sib.TotalSamples = bigint & totSampMask
 
-	sib.md5Signature = fmt.Sprintf("%x", b.Next(16))
+	sib.MD5Signature = fmt.Sprintf("%x", b.Next(16))
 
 	return sib
 }
 
 type FLACVorbisCommentBlock struct {
 	Vendor string
+	TotalComments uint32
 	Comments []string
 }
 
@@ -137,27 +138,28 @@ func FLACParseVorbisCommentBlock (block []byte) (vcb FLACVorbisCommentBlock) {
 
 	b := bytes.NewBuffer(block)
 
-	var aCommentLen uint32
+	// var aCommentLen uint32
 	var aComment string
 
 	vendorLen := binary.LittleEndian.Uint32(b.Next(4))
 	vcb.Vendor = string(b.Next(int(vendorLen)))
 	
-	totalComments := binary.LittleEndian.Uint32(b.Next(4))
+	vcb.TotalComments = binary.LittleEndian.Uint32(b.Next(4))
 
-	fmt.Printf("   vendor = %s, totalComments = %d\n", vcb.Vendor, totalComments)
-
-	for totalComments > 0 {
-		aCommentLen = binary.LittleEndian.Uint32(b.Next(4))
-		aComment = string(b.Next(int(aCommentLen)))
+	for tc := vcb.TotalComments; tc > 0; tc-- {
+		// aCommentLen = binary.LittleEndian.Uint32(b.Next(4))
+		// aComment = string(b.Next(int(aCommentLen)))
+		aComment = string(b.Next(int(binary.LittleEndian.Uint32(b.Next(4)))))
 		vcb.Comments = append(vcb.Comments, aComment)
-		totalComments--
 	}
 	return vcb
 }
 
 var fileName = flag.String("f", "", "The input file.")
 func main() {
+	var streamBuf uint32
+	lastBlock := false
+	totalMBH := 0
 
 	flag.Parse()
 
@@ -172,35 +174,47 @@ func main() {
 	f.Read(b)
 
 	buf := bytes.NewBuffer(b)
-	var streamBuf uint32
 
+	// First 4 bytes of the file are the FLAC stream marker.
+	// 0x66, 0x4C, 0x61, 0x43
 	if string(buf.Next(4)) != "fLaC" {
 		fmt.Printf("FATAL: '%s' is not a FLAC file.\n", *fileName)
 		os.Exit(-1)
 	}
 
-	lastBlock := false
-	// Comments := FLACVorbisCommentBlock
-
 	for lastBlock != true {
+		// Next 4 bytes after the stream marker is the first metadata block header.
 		streamBuf = binary.BigEndian.Uint32(buf.Next(4))
 		mbh := FLACParseMetadataBlockHeader(streamBuf)
 		lastBlock = mbh.Last
 
-		fmt.Printf("Metadata Block: Type = %s (%d) Length = %d Last = %s\n",
-				   HeaderType(mbh.Type), mbh.Type, mbh.Length, mbh.Last)	
+		fmt.Printf("METADATA block #%d\n", totalMBH)
+		fmt.Printf("  type: %d (%s)\n", mbh.Type, HeaderType(mbh.Type))
+		fmt.Printf("  ls last: %s\n", mbh.Last)
+		fmt.Printf("  length: %d\n", mbh.Length)
+		totalMBH++
 
 		if HeaderType(mbh.Type) == "STREAMINFO" {
-			StreaminfoBlock := FLACParseStreaminfoBlock(buf.Next(int(mbh.Length)))
-			fmt.Println("  ", *fileName, "StreamInfo =", StreaminfoBlock)
+			sib := FLACParseStreaminfoBlock(buf.Next(int(mbh.Length)))
+			fmt.Printf("  minimum blocksize: %d samples\n", sib.MinBlockSize)
+			fmt.Printf("  maximum blocksize: %d samples\n", sib.MaxBlockSize)
+			fmt.Printf("  minimum framesize: %d bytes\n", sib.MinFrameSize)
+			fmt.Printf("  maximum framesize: %d bytes\n", sib.MaxFrameSize)
+			fmt.Printf("  sample_rate: %d\n", sib.SampleRate)
+			fmt.Printf("  channels: %d\n", sib.Channels)
+			fmt.Printf("  bits-per-sample: %d\n", sib.BitsPerSample)
+			fmt.Printf("  total samples: %d\n", sib.TotalSamples)
+			fmt.Printf("  MD5 signature: %s\n", sib.MD5Signature)
 		} else if HeaderType(mbh.Type) == "VORBIS_COMMENT" {
-			VorbisCommentBlock := FLACParseVorbisCommentBlock(buf.Next(int(mbh.Length)))
-			for i, v := range(VorbisCommentBlock.Comments) {
-				fmt.Printf("      comment[%d]: %s\n", i, v)
+			vcb := FLACParseVorbisCommentBlock(buf.Next(int(mbh.Length)))
+			fmt.Printf("  vendor string: %s\n", vcb.Vendor)
+			fmt.Printf("  comments: %d\n", vcb.TotalComments)
+			for i, v := range(vcb.Comments) {
+				fmt.Printf("    comment[%d]: %s\n", i, v)
 			}
 		} else {
 			_ = buf.Next(int(mbh.Length))
 		}
-		fmt.Printf("\n")
+		// fmt.Printf("\n")
 	}
 }
