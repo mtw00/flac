@@ -31,10 +31,11 @@ var METADATA_BLOCK_HEADER_TYPES = map[uint32]string{
 	127: "INVALID",
 }
 
-func HeaderType(k uint32) string {
+func LookupHeaderType(k uint32) string {
 	blkType := METADATA_BLOCK_HEADER_TYPES[k]
 
-	if blkType == "" {
+	switch blkType {
+	case "":
 		return "UNKNOWN"
 	}
 	return blkType
@@ -46,14 +47,16 @@ type FLACMetadataBlockHeader struct {
 	Last   bool
 }
 
-func FLACParseMetadataBlockHeader(block uint32) (mbh FLACMetadataBlockHeader) {
+func FLACParseMetadataBlockHeader(block []byte) (mbh FLACMetadataBlockHeader) {
 	var LASTBLOCK uint32 = 0x80000000
 	var BLOCKTYPE uint32 = 0x7F000000
 	var BLOCKLEN uint32 = 0x00FFFFFF
 
-	mbh.Type = (BLOCKTYPE & block) >> 24
-	mbh.Length = BLOCKLEN & block
-	if (LASTBLOCK&block)>>31 == 1 {
+	b := binary.BigEndian.Uint32(block)
+
+	mbh.Type = (BLOCKTYPE & b) >> 24
+	mbh.Length = BLOCKLEN & b
+	if (LASTBLOCK&b)>>31 == 1 {
 		mbh.Last = true
 	} else {
 		mbh.Last = false
@@ -98,7 +101,7 @@ func FLACParseStreaminfoBlock(block []byte) (sib FLACStreaminfoBlock) {
 	b := bytes.NewBuffer(block)
 
 	var (
-		bigint          uint64
+		bits            uint64
 		minFSMask       uint64 = 0xFFFFFFFFFFFFFFFF
 		maxFSMask       uint64 = 0xFFFFFF
 		sampRateMask    uint64 = 0xFFFFF00000000000
@@ -109,16 +112,16 @@ func FLACParseStreaminfoBlock(block []byte) (sib FLACStreaminfoBlock) {
 
 	sib.MinBlockSize = binary.BigEndian.Uint16(b.Next(2))
 
-	bigint = binary.BigEndian.Uint64(b.Next(8))
-	sib.MaxBlockSize = uint16((minFSMask & bigint) >> 48)
-	sib.MinFrameSize = uint32((minFSMask & bigint) >> 24)
-	sib.MaxFrameSize = uint32(maxFSMask & bigint)
+	bits = binary.BigEndian.Uint64(b.Next(8))
+	sib.MaxBlockSize = uint16((minFSMask & bits) >> 48)
+	sib.MinFrameSize = uint32((minFSMask & bits) >> 24)
+	sib.MaxFrameSize = uint32(maxFSMask & bits)
 
-	bigint = binary.BigEndian.Uint64(b.Next(8))
-	sib.SampleRate = uint32((sampRateMask & bigint) >> 44)
-	sib.Channels = uint8((chMask&bigint)>>41) + 1
-	sib.BitsPerSample = uint8((bitsPerSampMask&bigint)>>36) + 1
-	sib.TotalSamples = bigint & totSampMask
+	bits = binary.BigEndian.Uint64(b.Next(8))
+	sib.SampleRate = uint32((sampRateMask & bits) >> 44)
+	sib.Channels = uint8((chMask&bits)>>41) + 1
+	sib.BitsPerSample = uint8((bitsPerSampMask&bits)>>36) + 1
+	sib.TotalSamples = bits & totSampMask
 
 	sib.MD5Signature = fmt.Sprintf("%x", b.Next(16))
 
@@ -198,7 +201,12 @@ var PictureTypeMap = map[uint32]string{
 }
 
 func LookupPictureType(k uint32) string {
-	return PictureTypeMap[k]
+	t := PictureTypeMap[k]
+	switch t {
+	case "":
+		return "UNKNOWN"
+	}
+	return t
 }
 
 func FLACParsePictureBlock(block []byte) (pb FLACPictureBlock) {
@@ -258,6 +266,8 @@ type FLACMetadata struct {
 	FLACPictureBlock
 }	
 
+
+
 func main() {
 	fileName := flag.String("f", "", "The input file.")
 	flag.Parse()
@@ -269,35 +279,38 @@ func main() {
 	}
 	defer f.Close()
 
-	b := make([]byte, 65536)
-	f.Read(b)
-	buf := bytes.NewBuffer(b)
+	headerBuf := make([]byte, 4)
+	f.Read(headerBuf)
 
 	var metadata []interface{}
 
 	// First 4 bytes of the file are the FLAC stream marker: 0x66, 0x4C, 0x61, 0x43
-	if string(buf.Next(4)) != "fLaC" {
+	if string(headerBuf) != "fLaC" {
 		fmt.Printf("FATAL: '%s' is not a FLAC file.\n", *fileName)
 		os.Exit(-1)
 	}
 
 	for totalMBH := 0; ; totalMBH++ {
 		// Next 4 bytes after the stream marker is the first metadata block header.
-		mbh := FLACParseMetadataBlockHeader(binary.BigEndian.Uint32(buf.Next(4)))
+		f.Read(headerBuf)
+		mbh := FLACParseMetadataBlockHeader(headerBuf)
 
-		switch HeaderType(mbh.Type) {
+		thisbuf := make([]byte, int(mbh.Length))
+		f.Read(thisbuf)
+		
+		switch LookupHeaderType(mbh.Type) {
 		case "STREAMINFO":
-			sib := FLACParseStreaminfoBlock(buf.Next(int(mbh.Length)))
+			sib := FLACParseStreaminfoBlock(thisbuf)
 			metadata = append(metadata, mbh)
 			metadata = append(metadata, sib)
 
 		case "VORBIS_COMMENT":
-			vcb := FLACParseVorbisCommentBlock(buf.Next(int(mbh.Length)))
+			vcb := FLACParseVorbisCommentBlock(thisbuf)
 			metadata = append(metadata, mbh)
 			metadata = append(metadata, vcb)
 
 		case "PICTURE":
-			pb := FLACParsePictureBlock(buf.Next(int(mbh.Length)))
+			pb := FLACParsePictureBlock(thisbuf)
 			metadata = append(metadata, mbh)
 			metadata = append(metadata, pb)
 
@@ -305,7 +318,8 @@ func main() {
 			metadata = append(metadata, mbh)
 
 		default:
-			_ = buf.Next(int(mbh.Length))
+			// _ = buf.Next(int(mbh.Length))
+			continue
 		}
 
 		if mbh.Last == true {
@@ -316,7 +330,7 @@ func main() {
 		switch d := metadata[i].(type) {
 		case FLACMetadataBlockHeader:
 			fmt.Printf("METADATA block #%d\n", j); j++
-			fmt.Printf("  type: %d (%s)\n", d.Type, HeaderType(d.Type))
+			fmt.Printf("  type: %d (%s)\n", d.Type, LookupHeaderType(d.Type))
 			fmt.Println("  ls last:", d.Last)
 			fmt.Println("  length:", d.Length)
 
