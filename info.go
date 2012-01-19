@@ -31,6 +31,30 @@ var METADATA_BLOCK_HEADER_TYPES = map[uint32]string{
 	127: "INVALID",
 }
 
+var PictureTypeMap = map[uint32]string{
+	0:  "Other",
+	1:  "File Icon",
+	2:  "Other File Icon",
+	3:  "Cover (front)",
+	4:  "Cover (back)",
+	5:  "Leaflet Page",
+	6:  "Media",
+	7:  "Lead Artist/Lead Performer/Soloist",
+	8:  "Artist/Performer",
+	9:  "Conductor",
+	10: "Band/Orchestra",
+	11: "Composer",
+	12: "Lyricist/Text Writer",
+	13: "Recording Location",
+	14: "During Recording",
+	15: "During Performance",
+	16: "Movie/Video Screen Capture",
+	17: "A Bright Coloured Fish",
+	18: "Illustration",
+	19: "Band/Artist Logotype",
+	20: "Publisher/Studio Logotype",
+}
+
 func LookupHeaderType(k uint32) string {
 	blkType := METADATA_BLOCK_HEADER_TYPES[k]
 
@@ -39,6 +63,15 @@ func LookupHeaderType(k uint32) string {
 		return "UNKNOWN"
 	}
 	return blkType
+}
+
+func LookupPictureType(k uint32) string {
+	t := PictureTypeMap[k]
+	switch t {
+	case "":
+		return "UNKNOWN"
+	}
+	return t
 }
 
 type FLACMetadataBlockHeader struct {
@@ -56,11 +89,11 @@ func FLACParseMetadataBlockHeader(block []byte) (mbh FLACMetadataBlockHeader) {
 
 	mbh.Type = (BLOCKTYPE & b) >> 24
 	mbh.Length = BLOCKLEN & b
+	mbh.Last = false
 	if (LASTBLOCK&b)>>31 == 1 {
 		mbh.Last = true
-	} else {
-		mbh.Last = false
 	}
+
 	return mbh
 }
 
@@ -135,31 +168,31 @@ type FLACVorbisCommentBlock struct {
 }
 
 func FLACParseVorbisCommentBlock(block []byte) (vcb FLACVorbisCommentBlock) {
-	/*
-		http://www.xiph.org/vorbis/doc/v-comment.html
-		The comment header is decoded as follows:
+	/* http://www.xiph.org/vorbis/doc/v-comment.html
+	The comment header is decoded as follows:
 
-			1) [vendor_length] = read an unsigned integer of 32 bits
-			2) [vendor_string] = read a UTF-8 vector as [vendor_length] octets
-			3) [user_comment_list_length] = read an unsigned integer of 32 bits
-			4) iterate [user_comment_list_length] times {
-				5) [length] = read an unsigned integer of 32 bits
-				6) this iteration's user comment = read a UTF-8 vector as [length] octets
-			}
-			7) done.
+		1) [vendor_length] = read an unsigned integer of 32 bits
+		2) [vendor_string] = read a UTF-8 vector as [vendor_length] octets
+		3) [user_comment_list_length] = read an unsigned integer of 32 bits
+		4) iterate [user_comment_list_length] times {
+			5) [length] = read an unsigned integer of 32 bits
+			6) this iteration's user comment = read a UTF-8 vector as [length] octets
+		}
+		7) done.
 	*/
 
-	aComment := ""
 	b := bytes.NewBuffer(block)
 
+	// vendorLen := int(binary.LittleEndian.Uint32(b.Next(4)))
 	vendorLen := int(binary.LittleEndian.Uint32(b.Next(4)))
 	vcb.Vendor = string(b.Next(vendorLen))
 	
 	vcb.TotalComments = binary.LittleEndian.Uint32(b.Next(4))
 
 	for tc := vcb.TotalComments; tc > 0; tc-- {
-		aComment = string(b.Next(int(binary.LittleEndian.Uint32(b.Next(4)))))
-		vcb.Comments = append(vcb.Comments, aComment)
+		// Head's up! There are 2 reads from b in there.
+		comment := string(b.Next(int(binary.LittleEndian.Uint32(b.Next(4)))))
+		vcb.Comments = append(vcb.Comments, comment)
 	}
 	return vcb
 }
@@ -176,38 +209,6 @@ type FLACPictureBlock struct {
 	PictureBlob        string
 }	
 
-var PictureTypeMap = map[uint32]string{
-	0:  "Other",
-	1:  "File Icon",
-	2:  "Other File Icon",
-	3:  "Cover (front)",
-	4:  "Cover (back)",
-	5:  "Leaflet Page",
-	6:  "Media",
-	7:  "Lead Artist/Lead Performer/Soloist",
-	8:  "Artist/Performer",
-	9:  "Conductor",
-	10: "Band/Orchestra",
-	11: "Composer",
-	12: "Lyricist/Text Writer",
-	13: "Recording Location",
-	14: "During Recording",
-	15: "During Performance",
-	16: "Movie/Video Screen Capture",
-	17: "A Bright Coloured Fish",
-	18: "Illustration",
-	19: "Band/Artist Logotype",
-	20: "Publisher/Studio Logotype",
-}
-
-func LookupPictureType(k uint32) string {
-	t := PictureTypeMap[k]
-	switch t {
-	case "":
-		return "UNKNOWN"
-	}
-	return t
-}
 
 func FLACParsePictureBlock(block []byte) (pb FLACPictureBlock) {
 	/*
@@ -244,6 +245,23 @@ func FLACParsePictureBlock(block []byte) (pb FLACPictureBlock) {
 	return pb
 }
 
+type FLACApplicationBlock struct {
+	Id   uint32
+	Data []byte
+}
+
+func FLACParseApplicationBlock(block []byte) (ab FLACApplicationBlock) {
+	b := bytes.NewBuffer(block)
+
+	ab.Id = binary.BigEndian.Uint32(b.Next(4))
+	if b.Len() % 8 != 0 {
+		fmt.Println("FATAL: Malformed METADATA_BLOCK_APPLICATION: the data field lengt is not a mulitple of 8")
+		os.Exit(-1)
+	}
+	ab.Data = b.Bytes()
+	return ab
+}
+		
 type FLACStreaminfo struct {
 	StreaminfoHeader FLACMetadataBlockHeader
 	StreaminfoData   FLACStreaminfoBlock
@@ -300,22 +318,19 @@ func main() {
 		
 		switch LookupHeaderType(mbh.Type) {
 		case "STREAMINFO":
-			sib := FLACParseStreaminfoBlock(thisbuf)
-			metadata = append(metadata, mbh)
-			metadata = append(metadata, sib)
+			metadata = append(metadata, mbh, FLACParseStreaminfoBlock(thisbuf))
 
 		case "VORBIS_COMMENT":
-			vcb := FLACParseVorbisCommentBlock(thisbuf)
-			metadata = append(metadata, mbh)
-			metadata = append(metadata, vcb)
+			metadata = append(metadata, mbh, FLACParseVorbisCommentBlock(thisbuf))
 
 		case "PICTURE":
-			pb := FLACParsePictureBlock(thisbuf)
-			metadata = append(metadata, mbh)
-			metadata = append(metadata, pb)
+			metadata = append(metadata, mbh, FLACParsePictureBlock(thisbuf))
 
 		case "PADDING":		// Don't bother to parse the PADDING block.
 			metadata = append(metadata, mbh)
+
+		case "APPLICATION":
+			metadata = append(metadata, mbh, FLACParseApplicationBlock(thisbuf))
 
 		default:
 			// _ = buf.Next(int(mbh.Length))
@@ -364,6 +379,9 @@ func main() {
 			for _, l := range strings.Split(d.PictureBlob, "\n") {
 				fmt.Println("   ", l)
 			}
+
+		case FLACApplicationBlock:
+			fmt.Println("  app. id:", string(d.Id))
 
 		default:
 			fmt.Println(metadata[i])
