@@ -85,12 +85,12 @@ func FLACParseMetadataBlockHeader(block []byte) (mbh FLACMetadataBlockHeader) {
 	var BLOCKTYPE uint32 = 0x7F000000
 	var BLOCKLEN uint32 = 0x00FFFFFF
 
-	b := binary.BigEndian.Uint32(block)
+	bits := binary.BigEndian.Uint32(block)
 
-	mbh.Type = (BLOCKTYPE & b) >> 24
-	mbh.Length = BLOCKLEN & b
+	mbh.Type = (BLOCKTYPE & bits) >> 24
+	mbh.Length = BLOCKLEN & bits
 	mbh.Last = false
-	if (LASTBLOCK&b)>>31 == 1 {
+	if (LASTBLOCK&bits)>>31 == 1 {
 		mbh.Last = true
 	}
 
@@ -131,7 +131,7 @@ func FLACParseStreaminfoBlock(block []byte) (sib FLACStreaminfoBlock) {
 		md5Signature = 128 bits
 	*/
 
-	b := bytes.NewBuffer(block)
+	buf := bytes.NewBuffer(block)
 
 	var (
 		bits            uint64
@@ -143,20 +143,20 @@ func FLACParseStreaminfoBlock(block []byte) (sib FLACStreaminfoBlock) {
 		totSampMask     uint64 = 0xFFFFFFFFF
 	)
 
-	sib.MinBlockSize = binary.BigEndian.Uint16(b.Next(2))
+	sib.MinBlockSize = binary.BigEndian.Uint16(buf.Next(2))
 
-	bits = binary.BigEndian.Uint64(b.Next(8))
+	bits = binary.BigEndian.Uint64(buf.Next(8))
 	sib.MaxBlockSize = uint16((minFSMask & bits) >> 48)
 	sib.MinFrameSize = uint32((minFSMask & bits) >> 24)
 	sib.MaxFrameSize = uint32(maxFSMask & bits)
 
-	bits = binary.BigEndian.Uint64(b.Next(8))
+	bits = binary.BigEndian.Uint64(buf.Next(8))
 	sib.SampleRate = uint32((sampRateMask & bits) >> 44)
 	sib.Channels = uint8((chMask&bits)>>41) + 1
 	sib.BitsPerSample = uint8((bitsPerSampMask&bits)>>36) + 1
 	sib.TotalSamples = bits & totSampMask
 
-	sib.MD5Signature = fmt.Sprintf("%x", b.Next(16))
+	sib.MD5Signature = fmt.Sprintf("%x", buf.Next(16))
 
 	return sib
 }
@@ -181,17 +181,18 @@ func FLACParseVorbisCommentBlock(block []byte) (vcb FLACVorbisCommentBlock) {
 		7) done.
 	*/
 
-	b := bytes.NewBuffer(block)
+	buf := bytes.NewBuffer(block)
 
-	// vendorLen := int(binary.LittleEndian.Uint32(b.Next(4)))
-	vendorLen := int(binary.LittleEndian.Uint32(b.Next(4)))
-	vcb.Vendor = string(b.Next(vendorLen))
+	// vendorLen := int(binary.LittleEndian.Uint32(buf.Next(4)))
+	vendorLen := int(binary.LittleEndian.Uint32(buf.Next(4)))
+	vcb.Vendor = string(buf.Next(vendorLen))
 	
-	vcb.TotalComments = binary.LittleEndian.Uint32(b.Next(4))
+	vcb.TotalComments = binary.LittleEndian.Uint32(buf.Next(4))
 
 	for tc := vcb.TotalComments; tc > 0; tc-- {
 		// Head's up! There are 2 reads from b in there.
-		comment := string(b.Next(int(binary.LittleEndian.Uint32(b.Next(4)))))
+		commentLen := int(binary.LittleEndian.Uint32(buf.Next(4)))
+		comment := string(buf.Next(commentLen))
 		vcb.Comments = append(vcb.Comments, comment)
 	}
 	return vcb
@@ -209,7 +210,6 @@ type FLACPictureBlock struct {
 	PictureBlob        string
 }	
 
-
 func FLACParsePictureBlock(block []byte) (pb FLACPictureBlock) {
 	/*
 		<32>	 The picture type according to the ID3v2 APIC frame:
@@ -224,23 +224,23 @@ func FLACParsePictureBlock(block []byte) (pb FLACPictureBlock) {
 		<32>	 The length of the picture data in bytes.
 		<n*8>	 The binary picture data.
 	*/
-	b := bytes.NewBuffer(block)
+	buf := bytes.NewBuffer(block)
 
-	pb.PictureType = LookupPictureType(binary.BigEndian.Uint32(b.Next(4)))
+	pb.PictureType = LookupPictureType(binary.BigEndian.Uint32(buf.Next(4)))
 
-	mimeLen := int(binary.BigEndian.Uint32(b.Next(4)))
-	pb.MimeType = string(b.Next(mimeLen))
+	mimeLen := int(binary.BigEndian.Uint32(buf.Next(4)))
+	pb.MimeType = string(buf.Next(mimeLen))
 
-	descLen := int(binary.BigEndian.Uint32(b.Next(4)))
+	descLen := int(binary.BigEndian.Uint32(buf.Next(4)))
 	if descLen > 0 {
-		pb.PictureDescription = string(binary.BigEndian.Uint32(b.Next(descLen)))
+		pb.PictureDescription = string(binary.BigEndian.Uint32(buf.Next(descLen)))
 	}
-	pb.Width = binary.BigEndian.Uint32(b.Next(4))
-	pb.Height = binary.BigEndian.Uint32(b.Next(4))
-	pb.ColorDepth = binary.BigEndian.Uint32(b.Next(4))
-	pb.NumColors = binary.BigEndian.Uint32(b.Next(4))
-	pb.Length = binary.BigEndian.Uint32(b.Next(4))
-	pb.PictureBlob = hex.Dump(b.Next(int(pb.Length)))
+	pb.Width = binary.BigEndian.Uint32(buf.Next(4))
+	pb.Height = binary.BigEndian.Uint32(buf.Next(4))
+	pb.ColorDepth = binary.BigEndian.Uint32(buf.Next(4))
+	pb.NumColors = binary.BigEndian.Uint32(buf.Next(4))
+	pb.Length = binary.BigEndian.Uint32(buf.Next(4))
+	pb.PictureBlob = hex.Dump(buf.Next(int(pb.Length)))
 
 	return pb
 }
@@ -251,14 +251,15 @@ type FLACApplicationBlock struct {
 }
 
 func FLACParseApplicationBlock(block []byte) (ab FLACApplicationBlock) {
-	b := bytes.NewBuffer(block)
+	buf := bytes.NewBuffer(block)
 
-	ab.Id = binary.BigEndian.Uint32(b.Next(4))
-	if b.Len() % 8 != 0 {
-		fmt.Println("FATAL: Malformed METADATA_BLOCK_APPLICATION: the data field lengt is not a mulitple of 8")
+	ab.Id = binary.BigEndian.Uint32(buf.Next(4))
+	if buf.Len() % 8 != 0 {
+		/* http://flac.sourceforge.net/format.html#metadata_block_application */
+		fmt.Println("FATAL: Malformed METADATA_BLOCK_APPLICATION: the data field length is not a mulitple of 8")
 		os.Exit(-1)
 	}
-	ab.Data = b.Bytes()
+	ab.Data = buf.Bytes()
 	return ab
 }
 		
@@ -300,6 +301,7 @@ func main() {
 	headerBuf := make([]byte, 4)
 	f.Read(headerBuf)
 
+	// Create a slice of empty interface{}s that will hold all of the metadata blocks.
 	var metadata []interface{}
 
 	// First 4 bytes of the file are the FLAC stream marker: 0x66, 0x4C, 0x61, 0x43
@@ -318,19 +320,23 @@ func main() {
 		
 		switch LookupHeaderType(mbh.Type) {
 		case "STREAMINFO":
-			metadata = append(metadata, mbh, FLACParseStreaminfoBlock(thisbuf))
+			sib := FLACParseStreaminfoBlock(thisbuf)
+			metadata = append(metadata, mbh, sib)
 
 		case "VORBIS_COMMENT":
-			metadata = append(metadata, mbh, FLACParseVorbisCommentBlock(thisbuf))
+			vcb := FLACParseVorbisCommentBlock(thisbuf)
+			metadata = append(metadata, mbh, vcb)
 
 		case "PICTURE":
-			metadata = append(metadata, mbh, FLACParsePictureBlock(thisbuf))
+			fpb := FLACParsePictureBlock(thisbuf)
+			metadata = append(metadata, mbh, fpb)
 
 		case "PADDING":		// Don't bother to parse the PADDING block.
 			metadata = append(metadata, mbh)
 
 		case "APPLICATION":
-			metadata = append(metadata, mbh, FLACParseApplicationBlock(thisbuf))
+			fab := FLACParseApplicationBlock(thisbuf)
+			metadata = append(metadata, mbh, fab)
 
 		default:
 			// _ = buf.Next(int(mbh.Length))
@@ -341,6 +347,8 @@ func main() {
 			break 
 		}
 	}
+
+	// This for loop should be broken out into functions that print the specific metadata block.
 	for i, j := 0, 0; i < len(metadata); i++ {
 		switch d := metadata[i].(type) {
 		case FLACMetadataBlockHeader:
