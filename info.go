@@ -190,7 +190,6 @@ func FLACParseVorbisCommentBlock(block []byte) (vcb FLACVorbisCommentBlock) {
 	vcb.TotalComments = binary.LittleEndian.Uint32(buf.Next(4))
 
 	for tc := vcb.TotalComments; tc > 0; tc-- {
-		// Head's up! There are 2 reads from b in there.
 		commentLen := int(binary.LittleEndian.Uint32(buf.Next(4)))
 		comment := string(buf.Next(commentLen))
 		vcb.Comments = append(vcb.Comments, comment)
@@ -212,7 +211,7 @@ type FLACPictureBlock struct {
 
 func FLACParsePictureBlock(block []byte) (pb FLACPictureBlock) {
 	/*
-		<32>	 The picture type according to the ID3v2 APIC frame:
+		<32>	 The picture type according to the ID3v2 APIC frame
 		<32>	 The length of the MIME type string in bytes.
 		<n*8>	 The MIME type string, in printable ASCII characters 0x20-0x7e. The MIME type may also be --> to signify that the data part is a URL of the picture instead of the picture data itself.
 		<32>	 The length of the description string in bytes.
@@ -255,7 +254,6 @@ func FLACParseApplicationBlock(block []byte) (ab FLACApplicationBlock) {
 
 	ab.Id = binary.BigEndian.Uint32(buf.Next(4))
 	if buf.Len() % 8 != 0 {
-		/* http://flac.sourceforge.net/format.html#metadata_block_application */
 		fmt.Println("FATAL: Malformed METADATA_BLOCK_APPLICATION: the data field length is not a mulitple of 8")
 		os.Exit(-1)
 	}
@@ -264,28 +262,101 @@ func FLACParseApplicationBlock(block []byte) (ab FLACApplicationBlock) {
 }
 		
 type FLACStreaminfo struct {
-	StreaminfoHeader FLACMetadataBlockHeader
-	StreaminfoData   FLACStreaminfoBlock
+	Header FLACMetadataBlockHeader
+	Data   FLACStreaminfoBlock
 }
 
 type FLACVorbisComment struct {
-	VorbisCommentHeader FLACMetadataBlockHeader
-	VorbisCommentData   FLACVorbisCommentBlock
+	Header FLACMetadataBlockHeader
+	Data   FLACVorbisCommentBlock
 }
 
 type FLACPicture struct {
-	PictureHeader FLACMetadataBlockHeader
-	PictureData   FLACPictureBlock
+	Header FLACMetadataBlockHeader
+	Data   FLACPictureBlock
 }
 
+type FLACApplication struct {
+	Header FLACMetadataBlockHeader
+	Data   FLACApplicationBlock
+}
+
+type FLACPadding struct {
+	Header FLACMetadataBlockHeader
+	Data   []byte
+}
+	
 type FLACMetadata struct {
-	FLACMetadataBlockHeader
-	FLACStreaminfoBlock
-	FLACVorbisCommentBlock
-	FLACPictureBlock
+	FLACStreaminfo
+	Metadata []interface{}
 }	
 
+func ParseFLACFile(f *os.File) (flacmetadata FLACMetadata) {
+	seenStreamInfoBlock := false
 
+	// First 4 bytes of the file are the FLAC stream marker: 0x66, 0x4C, 0x61, 0x43
+	headerBuf := make([]byte, 4)
+	f.Read(headerBuf)
+
+	if string(headerBuf) != "fLaC" {
+		fmt.Printf("FATAL: '%s' is not a FLAC file.\n", f.Name())
+		os.Exit(-1)
+	}
+
+	for totalMBH := 0; ; totalMBH++ {
+		// Next 4 bytes after the stream marker is the first metadata block header.
+		f.Read(headerBuf)
+		mbh := FLACParseMetadataBlockHeader(headerBuf)
+
+		headerType := LookupHeaderType(mbh.Type)
+
+		if headerType == "STREAMINFO" && seenStreamInfoBlock {
+			fmt.Println("FATAL: Two STREAMINFO blocks encountered!\n")
+			os.Exit(-1)
+		}
+		
+		thisbuf := make([]byte, int(mbh.Length))
+		f.Read(thisbuf)
+		
+		switch headerType {
+		case "STREAMINFO":
+			sib := FLACParseStreaminfoBlock(thisbuf)
+			flacmetadata.FLACStreaminfo = FLACStreaminfo{mbh, sib}
+			// flacmetadata.FLACStreaminfo.StreaminfoData = sib
+
+		case "VORBIS_COMMENT":
+			vcb := FLACParseVorbisCommentBlock(thisbuf)
+			flacmetadata.Metadata = append(flacmetadata.Metadata, FLACVorbisComment{mbh, vcb})
+
+		case "PICTURE":
+			fpb := FLACParsePictureBlock(thisbuf)
+			flacmetadata.Metadata = append(flacmetadata.Metadata, FLACPicture{mbh, fpb})
+
+		case "PADDING":		// Don't bother to parse the PADDING block.
+			flacmetadata.Metadata = append(flacmetadata.Metadata, FLACPadding{mbh, nil})
+
+		case "APPLICATION":
+			fab := FLACParseApplicationBlock(thisbuf)
+			flacmetadata.Metadata = append(flacmetadata.Metadata, FLACApplication{mbh, fab})
+
+		default:
+			// _ = buf.Next(int(mbh.Length))
+			continue
+		}
+
+		if mbh.Last == true {
+			break 
+		}
+	}
+	return flacmetadata
+}
+
+func PrintFLACMetadataBlockHeader(header FLACMetadataBlockHeader) {
+	fmt.Printf("  type: %d (%s)\n", header.Type,
+		LookupHeaderType(header.Type))
+	fmt.Println("  ls last:",  header.Last)
+	fmt.Println("  length:", header.Length)
+}
 
 func main() {
 	fileName := flag.String("f", "", "The input file.")
@@ -298,101 +369,58 @@ func main() {
 	}
 	defer f.Close()
 
-	headerBuf := make([]byte, 4)
-	f.Read(headerBuf)
+	metadata := ParseFLACFile(f)
 
-	// Create a slice of empty interface{}s that will hold all of the metadata blocks.
-	var metadata []interface{}
+	fmt.Println("METADATA block #0")
+	PrintFLACMetadataBlockHeader(metadata.FLACStreaminfo.Header)
 
-	// First 4 bytes of the file are the FLAC stream marker: 0x66, 0x4C, 0x61, 0x43
-	if string(headerBuf) != "fLaC" {
-		fmt.Printf("FATAL: '%s' is not a FLAC file.\n", *fileName)
-		os.Exit(-1)
-	}
+	fmt.Println("  minimum blocksize:", metadata.FLACStreaminfo.Data.MinBlockSize, "samples")
+	fmt.Println("  maximum blocksize:", metadata.FLACStreaminfo.Data.MaxBlockSize, "samples")
+	fmt.Println("  minimum framesize:", metadata.FLACStreaminfo.Data.MinFrameSize, "bytes")
+	fmt.Println("  maximum framesize:", metadata.FLACStreaminfo.Data.MaxFrameSize, "bytes")
+	fmt.Println("  sample_rate:", metadata.FLACStreaminfo.Data.SampleRate)
+	fmt.Println("  channels:", metadata.FLACStreaminfo.Data.Channels)
+	fmt.Println("  bits-per-sample:", metadata.FLACStreaminfo.Data.BitsPerSample)
+	fmt.Println("  total samples:", metadata.FLACStreaminfo.Data.TotalSamples)
+	fmt.Println("  MD5 signature:", metadata.FLACStreaminfo.Data.MD5Signature)
 
-	for totalMBH := 0; ; totalMBH++ {
-		// Next 4 bytes after the stream marker is the first metadata block header.
-		f.Read(headerBuf)
-		mbh := FLACParseMetadataBlockHeader(headerBuf)
-
-		thisbuf := make([]byte, int(mbh.Length))
-		f.Read(thisbuf)
+	for i, j := 0, 1; i < len(metadata.Metadata); i++ {
+		fmt.Printf("METADATA block #%d\n", j)
+		j++
 		
-		switch LookupHeaderType(mbh.Type) {
-		case "STREAMINFO":
-			sib := FLACParseStreaminfoBlock(thisbuf)
-			metadata = append(metadata, mbh, sib)
-
-		case "VORBIS_COMMENT":
-			vcb := FLACParseVorbisCommentBlock(thisbuf)
-			metadata = append(metadata, mbh, vcb)
-
-		case "PICTURE":
-			fpb := FLACParsePictureBlock(thisbuf)
-			metadata = append(metadata, mbh, fpb)
-
-		case "PADDING":		// Don't bother to parse the PADDING block.
-			metadata = append(metadata, mbh)
-
-		case "APPLICATION":
-			fab := FLACParseApplicationBlock(thisbuf)
-			metadata = append(metadata, mbh, fab)
-
-		default:
-			// _ = buf.Next(int(mbh.Length))
-			continue
-		}
-
-		if mbh.Last == true {
-			break 
-		}
-	}
-
-	// This for loop should be broken out into functions that print the specific metadata block.
-	for i, j := 0, 0; i < len(metadata); i++ {
-		switch d := metadata[i].(type) {
-		case FLACMetadataBlockHeader:
-			fmt.Printf("METADATA block #%d\n", j); j++
-			fmt.Printf("  type: %d (%s)\n", d.Type, LookupHeaderType(d.Type))
-			fmt.Println("  ls last:", d.Last)
-			fmt.Println("  length:", d.Length)
-
-		case FLACStreaminfoBlock:
-			fmt.Println("  minimum blocksize:", d.MinBlockSize, "samples")
-			fmt.Println("  maximum blocksize:", d.MaxBlockSize, "samples")
-			fmt.Println("  minimum framesize:", d.MinFrameSize, "bytes")
-			fmt.Println("  maximum framesize:", d.MaxFrameSize, "bytes")
-			fmt.Println("  sample_rate:", d.SampleRate)
-			fmt.Println("  channels:", d.Channels)
-			fmt.Println("  bits-per-sample:", d.BitsPerSample)
-			fmt.Println("  total samples:", d.TotalSamples)
-			fmt.Println("  MD5 signature:", d.MD5Signature)
-
-		case FLACVorbisCommentBlock:
-			fmt.Println("  vendor string:", d.Vendor)
-			fmt.Println("  comments:", d.TotalComments)
-			for i, v := range d.Comments {
+		switch d := metadata.Metadata[i].(type) {
+		case FLACVorbisComment:
+			PrintFLACMetadataBlockHeader(d.Header)
+			fmt.Println("  vendor string:", d.Data.Vendor)
+			fmt.Println("  comments:", d.Data.TotalComments)
+			for i, v := range d.Data.Comments {
 				fmt.Printf("    comment[%d]: %s\n", i, v)
 			}
 
-		case FLACPictureBlock:
-			fmt.Println("  type:", d.PictureType)
-			fmt.Println("  MIME type:", d.MimeType)
-			fmt.Println("  description:", d.PictureDescription)
-			fmt.Println("  width:", d.Width)
-			fmt.Println("  height:", d.Height)
-			fmt.Println("  depth:", d.ColorDepth)
-			fmt.Println("  colors:", d.NumColors)
-			fmt.Println("  data length:", d.Length)
-			for _, l := range strings.Split(d.PictureBlob, "\n") {
+		case FLACPicture:
+			PrintFLACMetadataBlockHeader(d.Header)
+			fmt.Println("  type:", d.Data.PictureType)
+			fmt.Println("  MIME type:", d.Data.MimeType)
+			fmt.Println("  description:", d.Data.PictureDescription)
+			fmt.Println("  width:", d.Data.Width)
+			fmt.Println("  height:", d.Data.Height)
+			fmt.Println("  depth:", d.Data.ColorDepth)
+			fmt.Println("  colors:", d.Data.NumColors)
+			fmt.Println("  data length:", d.Data.Length)
+			for _, l := range strings.Split(d.Data.PictureBlob, "\n") {
 				fmt.Println("   ", l)
 			}
 
-		case FLACApplicationBlock:
-			fmt.Println("  app. id:", string(d.Id))
+		case FLACApplication:
+			PrintFLACMetadataBlockHeader(d.Header)
+			fmt.Println("  app. id:", string(d.Data.Id))
+
+		case FLACPadding:
+			PrintFLACMetadataBlockHeader(d.Header)
 
 		default:
-			fmt.Println(metadata[i])
+			fmt.Printf("This block is of type %T\n", d)
 		}
 	}
+	os.Exit(0)
 }
