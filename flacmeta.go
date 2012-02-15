@@ -168,7 +168,7 @@ type FLACMetadata struct {
 	FLACPadding
 	FLACSeektable // not implemented yet
 	FLACCuesheet  // not implemented yet
-	TotalBlocks  uint8
+	TotalBlocks   uint8
 }
 
 func FLACParseMetadataBlockHeader(block []byte) (mbh FLACMetadataBlockHeader) {
@@ -188,7 +188,7 @@ func FLACParseMetadataBlockHeader(block []byte) (mbh FLACMetadataBlockHeader) {
 	return mbh
 }
 
-func PrintFLACMetadataBlockHeader(header FLACMetadataBlockHeader) {
+func (header *FLACMetadataBlockHeader) PrintFLACMetadataBlockHeader() {
 	fmt.Printf("  type: %d (%s)\n", header.Type,
 		LookupHeaderType(header.Type))
 	fmt.Println("  ls last:", header.Last)
@@ -248,6 +248,7 @@ func FLACParseStreaminfoBlock(block []byte) (sib FLACStreaminfoBlock) {
 }
 
 func (data *FLACMetadata) PrintFLACStreaminfoBlockData() {
+	data.FLACStreaminfo.Header.PrintFLACMetadataBlockHeader()
 	fmt.Println("  minimum blocksize:", data.FLACStreaminfo.Data.MinBlockSize, "samples")
 	fmt.Println("  maximum blocksize:", data.FLACStreaminfo.Data.MaxBlockSize, "samples")
 	fmt.Println("  minimum framesize:", data.FLACStreaminfo.Data.MinFrameSize, "bytes")
@@ -289,6 +290,7 @@ func FLACParseVorbisCommentBlock(block []byte) (vcb FLACVorbisCommentBlock) {
 }
 
 func (data *FLACMetadata) PrintFLACVorbisCommentData() {
+	data.FLACVorbisComment.Header.PrintFLACMetadataBlockHeader()
 	fmt.Println("  vendor string:", data.FLACVorbisComment.Data.Vendor)
 	fmt.Println("  comments:", data.FLACVorbisComment.Data.TotalComments)
 	for i, v := range data.FLACVorbisComment.Data.Comments {
@@ -297,18 +299,18 @@ func (data *FLACMetadata) PrintFLACVorbisCommentData() {
 }
 
 func FLACParsePictureBlock(block []byte) (pb FLACPictureBlock) {
-	// bits  Field
-	// -----+-----
-	// <32>  The picture type according to the ID3v2 APIC frame
-	// <32>  The length of the MIME type string in bytes.
-	// <n*8> The MIME type string, in printable ASCII characters 0x20-0x7e. The MIME type may also be --> to signify that the data part is a URL of the picture instead of the picture data itself.
-	// <32>  The length of the description string in bytes.
-	// <n*8> The description of the picture, in UTF-8.
-	// <32>  The width of the picture in pixels.
-	// <32>  The height of the picture in pixels.
-	// <32>  The color depth of the picture in bits-per-pixel.
-	// <32>  For indexed-color pictures (e.g. GIF), the number of colors used, or 0 for non-indexed pictures.
-	// <32>  The length of the picture data in bytes.
+	// bits   Field
+	// -----+------
+	// <32>   The picture type according to the ID3v2 APIC frame
+	// <32>   The length of the MIME type string in bytes.
+	// <n*8>  The MIME type string, in printable ASCII characters 0x20-0x7e. The MIME type may also be --> to signify that the data part is a URL of the picture instead of the picture data itself.
+	// <32>   The length of the description string in bytes.
+	// <n*8>  The description of the picture, in UTF-8.
+	// <32>   The width of the picture in pixels.
+	// <32>   The height of the picture in pixels.
+	// <32>   The color depth of the picture in bits-per-pixel.
+	// <32>   For indexed-color pictures (e.g. GIF), the number of colors used, or 0 for non-indexed pictures.
+	// <32>   The length of the picture data in bytes.
 	// <n*8>  The binary picture data.
 
 	buf := bytes.NewBuffer(block)
@@ -333,7 +335,8 @@ func FLACParsePictureBlock(block []byte) (pb FLACPictureBlock) {
 }
 
 func (data *FLACMetadata) PrintFLACPictureData() {
-	for _, entry := range(data.FLACPictures) {
+	for _, entry := range data.FLACPictures {
+		entry.Header.PrintFLACMetadataBlockHeader()
 		fmt.Println("  type:", entry.Data.PictureType)
 		fmt.Println("  MIME type:", entry.Data.MimeType)
 		fmt.Println("  description:", entry.Data.PictureDescription)
@@ -361,6 +364,7 @@ func FLACParseApplicationBlock(block []byte) (ab FLACApplicationBlock) {
 }
 
 func (data *FLACMetadata) PrintFLACApplicationData() {
+	data.FLACApplication.Header.PrintFLACMetadataBlockHeader()
 	fmt.Println("  app. id:", string(data.FLACApplication.Data.Id))
 }
 
@@ -377,7 +381,7 @@ func (flacmetadata *FLACMetadata) ReadFLACMetadata(f *os.File) (bool, string) {
 	for totalMBH := 0; ; totalMBH++ {
 		// Next 4 bytes after the stream marker is the first metadata block header.
 		f.Read(headerBuf)
-		
+
 		mbh := FLACParseMetadataBlockHeader(headerBuf)
 		headerType := LookupHeaderType(mbh.Type)
 		block := make([]byte, int(mbh.Length))
