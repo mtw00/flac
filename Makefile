@@ -1,7 +1,7 @@
 include $(GOROOT)/src/Make.inc
 
-TARG=flacinfo
+TARG=flacmeta
 GOFILES=\
-	info.go
+	flacmeta.go\
 
-include $(GOROOT)/src/Make.cmd
+include $(GOROOT)/src/Make.pkg
