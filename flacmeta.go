@@ -78,9 +78,10 @@ func LookupPictureType(k uint32) string {
 }
 
 type FLACMetadataBlockHeader struct {
-	Type   uint32
-	Length uint32
-	Last   bool
+	Type       uint32
+	Length     uint32
+	Last       bool
+	SeekPoints uint16
 }
 
 type FLACStreaminfoBlock struct {
@@ -119,43 +120,49 @@ type FLACApplicationBlock struct {
 }
 
 type FLACStreaminfo struct {
-	Header      FLACMetadataBlockHeader
-	Data        FLACStreaminfoBlock
+	Header      *FLACMetadataBlockHeader
+	Data        *FLACStreaminfoBlock
 	IsPopulated bool
 }
 
 type FLACVorbisComment struct {
-	Header      FLACMetadataBlockHeader
-	Data        FLACVorbisCommentBlock
+	Header      *FLACMetadataBlockHeader
+	Data        *FLACVorbisCommentBlock
 	IsPopulated bool
 }
 
 type FLACPicture struct {
-	Header      FLACMetadataBlockHeader
-	Data        FLACPictureBlock
+	Header      *FLACMetadataBlockHeader
+	Data        *FLACPictureBlock
 	IsPopulated bool
 }
 
 type FLACApplication struct {
-	Header      FLACMetadataBlockHeader
-	Data        FLACApplicationBlock
+	Header      *FLACMetadataBlockHeader
+	Data        *FLACApplicationBlock
 	IsPopulated bool
 }
 
 type FLACPadding struct {
-	Header      FLACMetadataBlockHeader
+	Header      *FLACMetadataBlockHeader
 	Data        []byte
 	IsPopulated bool
 }
 
+type FLACSeekpointBlock struct {
+	SampleNumber uint64
+	Offset       uint64
+	FrameSamples uint16
+}
+
 type FLACSeektable struct {
-	Header      FLACMetadataBlockHeader
-	Data        []byte
+	Header      *FLACMetadataBlockHeader
+	Data        []FLACSeekpointBlock
 	IsPopulated bool
 }
 
 type FLACCuesheet struct {
-	Header      FLACMetadataBlockHeader
+	Header      *FLACMetadataBlockHeader
 	Data        []byte
 	IsPopulated bool
 }
@@ -171,7 +178,7 @@ type FLACMetadata struct {
 	TotalBlocks   uint8
 }
 
-func FLACParseMetadataBlockHeader(block []byte) (mbh FLACMetadataBlockHeader) {
+func (mbh *FLACMetadataBlockHeader) FLACParseMetadataBlockHeader(block []byte) (bool, string) {
 	var LASTBLOCK uint32 = 0x80000000
 	var BLOCKTYPE uint32 = 0x7F000000
 	var BLOCKLEN uint32 = 0x00FFFFFF
@@ -184,8 +191,30 @@ func FLACParseMetadataBlockHeader(block []byte) (mbh FLACMetadataBlockHeader) {
 	if (LASTBLOCK&bits)>>31 == 1 {
 		mbh.Last = true
 	}
+	if mbh.Type == 3 {
+		if mbh.Length % 18 != 0 {
+			return true, "SEEKTABLE block length is not a multiple of 18."
+		}
+		mbh.SeekPoints = uint16(mbh.Length / 18)
+	}
 
-	return mbh
+	return false, ""
+}
+
+func FLACParseSeekpointBlock(block []byte) (spb []FLACSeekpointBlock) {
+	buf := bytes.NewBuffer(block)
+	var sample uint64
+	var offset uint64
+	var frameSamp uint16
+	
+	for ; buf.Len() > 0; {
+		sample = binary.BigEndian.Uint64(buf.Next(8))
+		offset = binary.BigEndian.Uint64(buf.Next(8))
+		frameSamp = binary.BigEndian.Uint16(buf.Next(2))
+
+		spb = append(spb, FLACSeekpointBlock{sample, offset, frameSamp})
+	}
+	return spb
 }
 
 func (header *FLACMetadataBlockHeader) PrintFLACMetadataBlockHeader() {
@@ -195,7 +224,7 @@ func (header *FLACMetadataBlockHeader) PrintFLACMetadataBlockHeader() {
 	fmt.Println("  length:", header.Length)
 }
 
-func FLACParseStreaminfoBlock(block []byte) (sib FLACStreaminfoBlock) {
+func (sib *FLACStreaminfoBlock) FLACParseStreaminfoBlock(block []byte) {
 	/* http://flac.sourceforge.net/format.html
 	The FLAC STREAMINFO block is structured thus:
 	<16>  - Minimum block size (in samples) used in the stream.
@@ -244,7 +273,7 @@ func FLACParseStreaminfoBlock(block []byte) (sib FLACStreaminfoBlock) {
 
 	sib.MD5Signature = fmt.Sprintf("%x", buf.Next(16))
 
-	return sib
+	// return sib
 }
 
 func (data *FLACMetadata) PrintFLACStreaminfoBlockData() {
@@ -260,7 +289,7 @@ func (data *FLACMetadata) PrintFLACStreaminfoBlockData() {
 	fmt.Println("  MD5 signature:", data.FLACStreaminfo.Data.MD5Signature)
 }
 
-func FLACParseVorbisCommentBlock(block []byte) (vcb FLACVorbisCommentBlock) {
+func (vcb *FLACVorbisCommentBlock) FLACParseVorbisCommentBlock(block []byte) {
 	/* http://www.xiph.org/vorbis/doc/v-comment.html
 	The comment header is decoded as follows:
 
@@ -286,7 +315,7 @@ func FLACParseVorbisCommentBlock(block []byte) (vcb FLACVorbisCommentBlock) {
 		comment := string(buf.Next(commentLen))
 		vcb.Comments = append(vcb.Comments, comment)
 	}
-	return vcb
+	// return vcb
 }
 
 func (data *FLACMetadata) PrintFLACVorbisCommentData() {
@@ -298,7 +327,7 @@ func (data *FLACMetadata) PrintFLACVorbisCommentData() {
 	}
 }
 
-func FLACParsePictureBlock(block []byte) (pb FLACPictureBlock) {
+func (pb *FLACPictureBlock) FLACParsePictureBlock(block []byte) {
 	// bits   Field
 	// -----+------
 	// <32>   The picture type according to the ID3v2 APIC frame
@@ -331,7 +360,7 @@ func FLACParsePictureBlock(block []byte) (pb FLACPictureBlock) {
 	pb.Length = binary.BigEndian.Uint32(buf.Next(4))
 	pb.PictureBlob = hex.Dump(buf.Next(int(pb.Length)))
 
-	return pb
+	// return pb
 }
 
 func (data *FLACMetadata) PrintFLACPictureData() {
@@ -351,21 +380,24 @@ func (data *FLACMetadata) PrintFLACPictureData() {
 	}
 }
 
-func FLACParseApplicationBlock(block []byte) (ab FLACApplicationBlock) {
+func (ab *FLACApplicationBlock) FLACParseApplicationBlock(block []byte) (bool, string) {
 	buf := bytes.NewBuffer(block)
 
 	ab.Id = binary.BigEndian.Uint32(buf.Next(4))
 	if buf.Len()%8 != 0 {
-		fmt.Println("FATAL: Malformed METADATA_BLOCK_APPLICATION: the data field length is not a mulitple of 8")
-		os.Exit(-1)
+		return true, "Malformed METADATA_BLOCK_APPLICATION: the data field length is not a mulitple of 8"
 	}
 	ab.Data = buf.Bytes()
-	return ab
+	return false, ""
 }
 
 func (data *FLACMetadata) PrintFLACApplicationData() {
 	data.FLACApplication.Header.PrintFLACMetadataBlockHeader()
 	fmt.Println("  app. id:", string(data.FLACApplication.Data.Id))
+}
+
+func (data *FLACMetadata) PrintFLACPaddingData() {
+	data.FLACPadding.Header.PrintFLACMetadataBlockHeader()
 }
 
 func (flacmetadata *FLACMetadata) ReadFLACMetadata(f *os.File) (bool, string) {
@@ -382,7 +414,13 @@ func (flacmetadata *FLACMetadata) ReadFLACMetadata(f *os.File) (bool, string) {
 		// Next 4 bytes after the stream marker is the first metadata block header.
 		f.Read(headerBuf)
 
-		mbh := FLACParseMetadataBlockHeader(headerBuf)
+		mbh := new(FLACMetadataBlockHeader)
+		error, msg := mbh.FLACParseMetadataBlockHeader(headerBuf)
+
+		if error {
+			return true, msg
+		}
+
 		headerType := LookupHeaderType(mbh.Type)
 		block := make([]byte, int(mbh.Length))
 
@@ -393,18 +431,21 @@ func (flacmetadata *FLACMetadata) ReadFLACMetadata(f *os.File) (bool, string) {
 			if flacmetadata.FLACStreaminfo.IsPopulated {
 				return true, fmt.Sprintf("FATAL: Two %s blocks encountered!\n", headerType)
 			}
-			sib := FLACParseStreaminfoBlock(block)
+			sib := new(FLACStreaminfoBlock)
+			sib.FLACParseStreaminfoBlock(block)
 			flacmetadata.FLACStreaminfo = FLACStreaminfo{mbh, sib, true}
 
 		case "VORBIS_COMMENT":
 			if flacmetadata.FLACVorbisComment.IsPopulated {
 				return true, fmt.Sprintf("FATAL: Two %s blocks encountered!\n", headerType)
 			}
-			vcb := FLACParseVorbisCommentBlock(block)
+			vcb := new(FLACVorbisCommentBlock)
+			vcb.FLACParseVorbisCommentBlock(block)
 			flacmetadata.FLACVorbisComment = FLACVorbisComment{mbh, vcb, true}
 
 		case "PICTURE":
-			fpb := FLACParsePictureBlock(block)
+			fpb := new(FLACPictureBlock)
+			fpb.FLACParsePictureBlock(block)
 			flacmetadata.FLACPictures = append(flacmetadata.FLACPictures, FLACPicture{mbh, fpb, true})
 
 		case "PADDING":
@@ -417,8 +458,16 @@ func (flacmetadata *FLACMetadata) ReadFLACMetadata(f *os.File) (bool, string) {
 			if flacmetadata.FLACApplication.IsPopulated {
 				return true, fmt.Sprintf("FATAL: Two %s blocks encountered!\n", headerType)
 			}
-			fab := FLACParseApplicationBlock(block)
+			fab := new(FLACApplicationBlock)
+			fab.FLACParseApplicationBlock(block)
 			flacmetadata.FLACApplication = FLACApplication{mbh, fab, true}
+
+		case "SEEKTABLE":
+			if flacmetadata.FLACSeektable.IsPopulated {
+				return true, fmt.Sprintf("FATAL: Two %s block encountered!\n", headerType)
+			}
+			spb := FLACParseSeekpointBlock(block)
+			flacmetadata.FLACSeektable = FLACSeektable{mbh, spb, true}
 
 		default:
 			continue
