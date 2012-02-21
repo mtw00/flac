@@ -15,18 +15,21 @@ import (
 	"strings"
 )
 
-// METADATA_BLOCK_HEADER_TYPES enumerates the types of metadata blocks in a
-// FLAC file.
-var METADATA_BLOCK_HEADER_TYPES = map[uint32]string{
-	0:   "STREAMINFO",
-	1:   "PADDING",
-	2:   "APPLICATION",
-	3:   "SEEKTABLE",
-	4:   "VORBIS_COMMENT",
-	5:   "CUESHEET",
-	6:   "PICTURE",
-	127: "INVALID",
-}
+// METADATA_BLOCK_TYPES enumerates the types of metadata blocks in a FLAC file.
+type METADATA_BLOCK_TYPE uint32
+
+const (
+	STREAMINFO     METADATA_BLOCK_TYPE = iota // 0
+	PADDING                                   // 1
+	APPLICATION                               // 2
+	SEEKTABLE                                 // 3
+	VORBIS_COMMENT                            // 4
+	CUESHEET                                  // 5
+	PICTURE                                   // 6
+	INVALID        METADATA_BLOCK_TYPE = 127
+
+	METADATA_BLOCK_HEADER_LEN int = 4
+)
 
 // PictureTypeMap enumerates the types of pictures in a FLACPictureBlock.
 var PictureTypeMap = map[uint32]string{
@@ -55,19 +58,31 @@ var PictureTypeMap = map[uint32]string{
 
 // Begin convenience functions.
 
-// LookupHeaderType looks up the type of a metadata block header based on
-// numeric id.
-func LookupHeaderType(k uint32) (bool, string) {
-	blkType := METADATA_BLOCK_HEADER_TYPES[k]
-
-	switch blkType {
-	case "":
-		return true, "FATAL: Invalid block header type."
+// LookupHeaderType returns a const representing the METADATA_BLOCK_TYPE or
+// INVALID for unknown/undefined block type.
+func LookupHeaderType(i uint32) METADATA_BLOCK_TYPE {
+	switch i {
+	case 0:
+		return STREAMINFO
+	case 1:
+		return PADDING
+	case 2:
+		return APPLICATION
+	case 3:
+		return SEEKTABLE
+	case 4:
+		return VORBIS_COMMENT
+	case 5:
+		return CUESHEET
+	case 6:
+		return PICTURE
+	case 127:
+		return INVALID
 	}
-	return true, blkType
+	return INVALID
 }
 
-// LookupHeaderType looks up the type of a picture based on numeric id.
+// LookupPictureType looks up the type of a picture based on numeric id.
 func LookupPictureType(k uint32) string {
 	t := PictureTypeMap[k]
 	switch t {
@@ -77,7 +92,49 @@ func LookupPictureType(k uint32) string {
 	return t
 }
 
-// Here starts the base metadata block types.
+// Implement fmt.Stringer to print the string representation of METADATA_BLOCK_TYPEs.
+func (mbt METADATA_BLOCK_TYPE) String() string {
+	switch {
+	case mbt == STREAMINFO:
+		return "STREAMINFO"
+	case mbt == PADDING:
+		return "PADDING"
+	case mbt == APPLICATION:
+		return "APPLICATION"
+	case mbt == SEEKTABLE:
+		return "SEEKTABLE"
+	case mbt == VORBIS_COMMENT:
+		return "VORBIS_COMMENT"
+	case mbt == CUESHEET:
+		return "CUESHEET"
+	case mbt == PICTURE:
+		return "PICTURE"
+	}
+	return "INVALID"
+}
+
+// Implement fmt.GoStringer to print the string and integer representation of METADATA_BLOCK_TYPEs.
+func (mbt METADATA_BLOCK_TYPE) GoString() string {
+	switch {
+	case mbt == STREAMINFO:
+		return fmt.Sprintf("%d (%s)", int(STREAMINFO), STREAMINFO)
+	case mbt == PADDING:
+		return fmt.Sprintf("%d (%s)", int(PADDING), PADDING)
+	case mbt == APPLICATION:
+		return fmt.Sprintf("%d (%s)", int(APPLICATION), APPLICATION)
+	case mbt == SEEKTABLE:
+		return fmt.Sprintf("%d (%s)", int(SEEKTABLE), SEEKTABLE)
+	case mbt == VORBIS_COMMENT:
+		return fmt.Sprintf("%d (%s)", int(VORBIS_COMMENT), VORBIS_COMMENT)
+	case mbt == CUESHEET:
+		return fmt.Sprintf("%d (%s)", int(CUESHEET), CUESHEET)
+	case mbt == PICTURE:
+		return fmt.Sprintf("%d (%s)", int(PICTURE), PICTURE)
+	}
+	return fmt.Sprintf("%d (%s)", int(INVALID), PICTURE)
+}
+
+// Begin base metadata block types.
 
 // FLACApplicationBlock contains the ID and binary data of an embedded
 // executable.
@@ -91,7 +148,7 @@ type FLACApplicationBlock struct {
 // FLAC file. It describes what kind of block the metadata is, how long (in bytes)
 // it is and if it is the last metadata block before the start of the audio stream.
 type FLACMetadataBlockHeader struct {
-	Type       uint32
+	Type       METADATA_BLOCK_TYPE
 	Length     uint32
 	Last       bool
 	SeekPoints uint16
@@ -111,7 +168,15 @@ type FLACPictureBlock struct {
 	PictureBlob        string
 }
 
-// FLACStreaminfoBlock contains information on the audio stream.  Only one
+// FLACSeekpointBlock contains locations within the FLAC file that allow
+// an application to quickly jump to pre-defined locations in the audio stream.
+type FLACSeekpointBlock struct {
+	SampleNumber uint64
+	Offset       uint64
+	FrameSamples uint16
+}
+
+// FLACStreaminfoBlock contains information about the audio stream. Only one
 // StreaminfoBlock is allowed per file.
 type FLACStreaminfoBlock struct {
 	MinBlockSize  uint16
@@ -125,7 +190,7 @@ type FLACStreaminfoBlock struct {
 	MD5Signature  string
 }
 
-// FLACVorbisCommentBlock contains general information about the song/audio.
+// FLACVorbisCommentBlock contains general information about the song/audio stream.
 // Common fields are Artist, Song Title and Album. Only one VorbisCommentBlock
 // is allowed per file.
 type FLACVorbisCommentBlock struct {
@@ -134,7 +199,7 @@ type FLACVorbisCommentBlock struct {
 	Comments      []string
 }
 
-// Here starts the full metadata blocks: a struct containing a
+// Here start the full metadata blocks: a struct containing a
 // FLACMetadataBlockHeader and the corresponding metadata block. Structs with
 // an IsPopulated field imply that only one of this type of block is allowed in
 // a FLAC file.
@@ -165,14 +230,6 @@ type FLACPicture struct {
 	Header      *FLACMetadataBlockHeader
 	Data        *FLACPictureBlock
 	IsPopulated bool
-}
-
-// FLACSeekpointBlock contains locations within the FLAC file that allows
-// an application to quickly jump to pre-defined locations in the audio stream.
-type FLACSeekpointBlock struct {
-	SampleNumber uint64
-	Offset       uint64
-	FrameSamples uint16
 }
 
 // FLACSeektable is a full Seek Table block (header + data).
@@ -230,14 +287,14 @@ func (mbh *FLACMetadataBlockHeader) FLACParseMetadataBlockHeader(block []byte) (
 
 	bits := binary.BigEndian.Uint32(block)
 
-	mbh.Type = (BLOCKTYPE & bits) >> 24
+	mbh.Type = LookupHeaderType((BLOCKTYPE & bits) >> 24)
 	mbh.Length = BLOCKLEN & bits
 	mbh.Last = false
 	if (LASTBLOCK&bits)>>31 == 1 {
 		mbh.Last = true
 	}
-	if mbh.Type == 3 {
-		if mbh.Length % 18 != 0 {
+	if mbh.Type == SEEKTABLE {
+		if mbh.Length%18 != 0 {
 			return true, "SEEKTABLE block length is not a multiple of 18."
 		}
 		mbh.SeekPoints = uint16(mbh.Length / 18)
@@ -289,8 +346,8 @@ func FLACParseSeekpointBlock(block []byte) (spb []FLACSeekpointBlock) {
 	var sample uint64
 	var offset uint64
 	var frameSamp uint16
-	
-	for ; buf.Len() > 0; {
+
+	for buf.Len() > 0 {
 		sample = binary.BigEndian.Uint64(buf.Next(8))
 		offset = binary.BigEndian.Uint64(buf.Next(8))
 		frameSamp = binary.BigEndian.Uint16(buf.Next(2))
@@ -385,8 +442,7 @@ func (data *FLACMetadata) PrintFLACApplicationData() {
 }
 
 func (header *FLACMetadataBlockHeader) PrintFLACMetadataBlockHeader() {
-	_, hdrType := LookupHeaderType(header.Type)
-	fmt.Printf("  type: %d (%s)\n", header.Type, hdrType)
+	fmt.Printf("  type: %#v\n", header.Type)
 	fmt.Println("  ls last:", header.Last)
 	fmt.Println("  length:", header.Length)
 }
@@ -434,13 +490,17 @@ func (data *FLACMetadata) PrintFLACVorbisCommentData() {
 	}
 }
 
-// ReadFLACMetatada reads the metadata from a flac file and populates a
+// ReadFLACMetatada reads the metadata from a FLAC file and populates a
 // FLACMetadata struct with the data.
 func (flacmetadata *FLACMetadata) ReadFLACMetadata(f *os.File) (bool, string) {
 	// First 4 bytes of the file are the FLAC stream marker: 0x66, 0x4C, 0x61, 0x43
 	// It's also the length of all metadata block headers so we'll resue it below.
-	headerBuf := make([]byte, 4)
-	f.Read(headerBuf)
+	headerBuf := make([]byte, METADATA_BLOCK_HEADER_LEN)
+
+	readlen, readerr := f.Read(headerBuf)
+	if readerr != nil || readlen != int(METADATA_BLOCK_HEADER_LEN) {
+		return true, fmt.Sprintf("FATAL: error FLAC signature from '%s': %s", readerr, f.Name())
+	}
 
 	if string(headerBuf) != "fLaC" {
 		return true, fmt.Sprintf("FATAL: FLAC signature not found in '%s'", f.Name())
@@ -448,59 +508,62 @@ func (flacmetadata *FLACMetadata) ReadFLACMetadata(f *os.File) (bool, string) {
 
 	for totalMBH := 0; ; totalMBH++ {
 		// Next 4 bytes after the stream marker is the first metadata block header.
-		f.Read(headerBuf)
+		readlen, readerr := f.Read(headerBuf)
+		if readerr != nil || readlen != int(METADATA_BLOCK_HEADER_LEN) {
+			return true, fmt.Sprintf("FATAL: error metadata block header from '%s': %s", f.Name(), readerr)
+		}
 
 		mbh := new(FLACMetadataBlockHeader)
 		error, msg := mbh.FLACParseMetadataBlockHeader(headerBuf)
-
 		if error {
 			return true, msg
 		}
 
-		error, headerType := LookupHeaderType(mbh.Type)
 		block := make([]byte, int(mbh.Length))
+		readlen, readerr = f.Read(block)
+		if readerr != nil || readlen != int(len(block)) {
+			return true, fmt.Sprintf("FATAL: error reading %s metadata block from '%s': %s", mbh.Type.String(), f.Name(), readerr)
+		}
 
-		f.Read(block)
-
-		switch headerType {
-		case "STREAMINFO":
+		switch mbh.Type {
+		case STREAMINFO:
 			if flacmetadata.FLACStreaminfo.IsPopulated {
-				return true, fmt.Sprintf("FATAL: Two %s blocks encountered!\n", headerType)
+				return true, fmt.Sprintf("FATAL: Two %s blocks encountered!\n", mbh.Type.String())
 			}
 			sib := new(FLACStreaminfoBlock)
 			sib.FLACParseStreaminfoBlock(block)
 			flacmetadata.FLACStreaminfo = FLACStreaminfo{mbh, sib, true}
 
-		case "VORBIS_COMMENT":
+		case VORBIS_COMMENT:
 			if flacmetadata.FLACVorbisComment.IsPopulated {
-				return true, fmt.Sprintf("FATAL: Two %s blocks encountered!\n", headerType)
+				return true, fmt.Sprintf("FATAL: Two %s blocks encountered!\n", mbh.Type.String())
 			}
 			vcb := new(FLACVorbisCommentBlock)
 			vcb.FLACParseVorbisCommentBlock(block)
 			flacmetadata.FLACVorbisComment = FLACVorbisComment{mbh, vcb, true}
 
-		case "PICTURE":
+		case PICTURE:
 			fpb := new(FLACPictureBlock)
 			fpb.FLACParsePictureBlock(block)
 			flacmetadata.FLACPictures = append(flacmetadata.FLACPictures, FLACPicture{mbh, fpb, true})
 
-		case "PADDING":
+		case PADDING:
 			if flacmetadata.FLACPadding.IsPopulated {
-				return true, fmt.Sprintf("FATAL: Two %s blocks encountered!\n", headerType)
+				return true, fmt.Sprintf("FATAL: Two %s blocks encountered!\n", mbh.Type.String())
 			}
 			flacmetadata.FLACPadding = FLACPadding{mbh, nil, true}
 
-		case "APPLICATION":
+		case APPLICATION:
 			if flacmetadata.FLACApplication.IsPopulated {
-				return true, fmt.Sprintf("FATAL: Two %s blocks encountered!\n", headerType)
+				return true, fmt.Sprintf("FATAL: Two %s blocks encountered!\n", mbh.Type.String())
 			}
 			fab := new(FLACApplicationBlock)
 			fab.FLACParseApplicationBlock(block)
 			flacmetadata.FLACApplication = FLACApplication{mbh, fab, true}
 
-		case "SEEKTABLE":
+		case SEEKTABLE:
 			if flacmetadata.FLACSeektable.IsPopulated {
-				return true, fmt.Sprintf("FATAL: Two %s block encountered!\n", headerType)
+				return true, fmt.Sprintf("FATAL: Two %s block encountered!\n", mbh.Type.String())
 			}
 			spb := FLACParseSeekpointBlock(block)
 			flacmetadata.FLACSeektable = FLACSeektable{mbh, spb, true}
