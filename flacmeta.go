@@ -2,9 +2,6 @@
 // audio files.
 package flacmeta
 
-// TODO:
-// 	FLACParseCuesheetBlock()
-//	FLACParseCuesheetTrack()
 
 import (
 	"bytes"
@@ -33,6 +30,24 @@ const (
 	// Metadata field sizes, in bits.
 	APPLICATION_ID_LEN int = 32
 
+	CUESHEET_MEDIA_CATALOG_NUMBER_LEN int = 128 * 8
+	CUESHEET_LEADIN_SAMPLES_LEN       int = 64
+	CUESHEET_TYPE_LEN                 int = 1
+	CUESHEET_RESERVED_LEN             int = (7 + 258) * 8
+	CUESHEET_TOTAL_TRACKS_LEN         int = 8
+
+	CUESHEET_TRACK_TRACK_OFFSET_LEN int = 64
+	CUESHEET_TRACK_TRACK_NUMBER_LEN int = 8
+	CUESHEET_TRACK_TRACK_IRSC_LEN   int = 12 * 8
+	CUESHEET_TRACK_TRACK_TYPE_LEN   int = 1
+	CUESHEET_TRACK_PREEMPHASIS_LEN  int = 1
+	CUESHEET_TRACK_RESERVED_LEN     int = (6 + 13) * 8
+	CUESHEET_TRACK_INDEX_POINTS_LEN int = 8
+
+	CUESHEET_TRACK_INDEX_SAMPLE_OFFSET_LEN int = 64
+	CUESHEET_TRACK_INDEX_INDEX_POINT_LEN   int = 8
+	CUESHEET_TRACK_INDEX_RESERVED_LEN      int = 3 * 8
+
 	PICTURE_TYPE_LEN               int = 32
 	PICTURE_MIME_LENGTH_LEN        int = 32
 	PICTURE_DESCRIPTION_LENGTH_LEN int = 32
@@ -45,10 +60,9 @@ const (
 	SEEKPOINT_SAMPLE_NUMBER_LEN        int = 64
 	SEEKPOINT_SAMPLE_OFFSET_LEN        int = 64
 	SEEKPOINT_TARGET_FRAME_SAMPLES_LEN int = 16
-	SEEKPOINT_BLOCK_LEN		   int = (SEEKPOINT_SAMPLE_NUMBER_LEN +
+	SEEKPOINT_BLOCK_LEN                int = (SEEKPOINT_SAMPLE_NUMBER_LEN +
 		SEEKPOINT_SAMPLE_OFFSET_LEN +
 		SEEKPOINT_TARGET_FRAME_SAMPLES_LEN)
-		
 
 	STREAMINFO_MIN_BLOCK_SIZE_LEN  int = 16
 	STREAMINFO_MAX_BLOCK_SIZE_LEN  int = 16
@@ -102,8 +116,6 @@ var PictureTypeMap = map[uint32]string{
 	19: "Band/Artist Logotype",
 	20: "Publisher/Studio Logotype",
 }
-
-// Begin convenience functions.
 
 // LookupHeaderType returns a const representing the METADATA_BLOCK_TYPE or
 // INVALID for unknown/undefined block type.
@@ -190,6 +202,32 @@ type FLACApplicationBlock struct {
 	Data []byte
 }
 
+type FLACCuesheetBlock struct {
+	MediaCatalogNumber string
+	LeadinSamples      uint64
+	IsCompactDisc      bool
+	Reserved           []byte
+	TotalTracks        uint8 // > 1 && < 100 (for CD-DA)
+	FLACCuesheetTracks []*FLACCuesheetTrackBlock
+}
+
+type FLACCuesheetTrackBlock struct {
+	TrackOffset              uint64
+	TrackNumber              uint8
+	TrackIRSC                string
+	TrackType                bool
+	PreEmphasis              bool
+	Reserved                 []byte // (7 + 258) * 8 bits. All bits must be set to zero.
+	IndexPoints              uint8
+	FLACCuesheetTrackIndexes []*FLACCuesheetTrackIndexBlock
+}
+
+type FLACCuesheetTrackIndexBlock struct {
+	SampleOffset uint64
+	IndexPoint   uint8
+	Reserved     []byte // 3 * 8 bits. All bits must be set to zero.
+}
+
 // FLACMetadataBlockHeader is the common element for every metadata block in a
 // FLAC file. It describes the metadata block type, its length (in bytes), the
 // number of seek points if the block is a seektable, and if it is the last
@@ -260,8 +298,8 @@ type FLACApplication struct {
 
 // FLACCuesheet describes a "Cue sheet".
 type FLACCuesheet struct {
-	Header      *FLACMetadataBlockHeader
-	Data        []byte
+	Header *FLACMetadataBlockHeader
+	Data   *FLACCuesheetBlock
 	IsPopulated bool
 }
 
@@ -308,8 +346,8 @@ type FLACMetadata struct {
 	FLACPictures []*FLACPicture
 	FLACPadding
 	FLACSeektable
-	FLACCuesheet  // not implemented yet
-	TotalBlocks   uint8
+	FLACCuesheet
+	TotalBlocks  uint8
 }
 
 // Begin FLACParseX functions.
@@ -324,6 +362,25 @@ func (ab *FLACApplicationBlock) FLACParseApplicationBlock(block []byte) (bool, s
 	}
 	ab.Data = buf.Bytes()
 	return false, ""
+}
+
+// FLACParseCuesheetBlock parses the bits from a Cue Sheet block.
+func (cb *FLACCuesheetBlock) FLACParseCuesheetBlock(block []byte) (bool, string) {
+	var TRACKTYPE uint8 = 0x01
+	buf := bytes.NewBuffer(block)
+	bits := make([]uint8, 1)
+
+	cb.MediaCatalogNumber = string(buf.Next(CUESHEET_MEDIA_CATALOG_NUMBER_LEN/8))
+	cb.LeadinSamples = uint64(binary.BigEndian.Uint64(buf.Next(CUESHEET_LEADIN_SAMPLES_LEN/8)))
+	bits = buf.Next(1)
+	if bits[0]>>7&TRACKTYPE == 1 {
+		cb.IsCompactDisc = true
+	}
+	cb.Reserved = buf.Next(258)
+	bits = buf.Next(1)
+	cb.TotalTracks = uint8(bits[0])
+
+	return true, "HELLO"
 }
 
 // FLACParseMetadataBlockHeader parses the bits from a FLAC metadata block header.
@@ -345,10 +402,10 @@ func (mbh *FLACMetadataBlockHeader) FLACParseMetadataBlockHeader(block []byte) (
 		mbh.Last = true
 	}
 	if mbh.Type == SEEKTABLE {
-		if mbh.Length%18 != 0 {
-			return true, "SEEKTABLE block length is not a multiple of 18."
+		if mbh.Length%uint32(SEEKPOINT_BLOCK_LEN/8) != 0 {
+			return true, fmt.Sprintf("SEEKTABLE block length is not a multiple of %d.", SEEKPOINT_BLOCK_LEN/8)
 		}
-		mbh.SeekPoints = uint16(mbh.Length / 18)
+		mbh.SeekPoints = uint16(mbh.Length / uint32(SEEKPOINT_BLOCK_LEN/8))
 	}
 	return false, ""
 }
@@ -391,12 +448,20 @@ func (pb *FLACPictureBlock) FLACParsePictureBlock(block []byte) {
 }
 
 // FLACParseSeekpointBlock parses the bits from a FLAC seekpoint block.
-func (spb *FLACSeekpointBlock) FLACParseSeekpointBlock(block []byte) {
+func (stb *FLACSeektable) FLACParseSeekpointBlock(block []byte) (bool, string) {
 	buf := bytes.NewBuffer(block)
 
-	spb.SampleNumber = binary.BigEndian.Uint64(buf.Next(int(SEEKPOINT_SAMPLE_NUMBER_LEN / 8)))
-	spb.Offset = binary.BigEndian.Uint64(buf.Next(SEEKPOINT_SAMPLE_OFFSET_LEN / 8))
-	spb.FrameSamples = binary.BigEndian.Uint16(buf.Next(SEEKPOINT_TARGET_FRAME_SAMPLES_LEN / 8))
+	for i := 0; buf.Len() > 0; i++ {
+		spb := new(FLACSeekpointBlock)
+
+		spb.SampleNumber = binary.BigEndian.Uint64(buf.Next(SEEKPOINT_SAMPLE_NUMBER_LEN / 8))
+		spb.Offset = binary.BigEndian.Uint64(buf.Next(SEEKPOINT_SAMPLE_OFFSET_LEN / 8))
+		spb.FrameSamples = binary.BigEndian.Uint16(buf.Next(SEEKPOINT_TARGET_FRAME_SAMPLES_LEN / 8))
+
+		stb.Data = append(stb.Data, spb)
+	}
+
+	return true, "OK"
 }
 
 // FLACParseStreaminfoBlock parses the bits from a FLAC streaminfo block.
@@ -484,13 +549,12 @@ func (vcb *FLACVorbisCommentBlock) FLACParseVorbisCommentBlock(block []byte) {
 
 func (data *FLACApplication) String() string {
 	var s string
-	
+
 	s += fmt.Sprintf("%s\n", data.Header)
 	s += fmt.Sprintf("  app. id: %s\n", data.Data)
 
 	return s
 }
-
 
 func (header *FLACMetadataBlockHeader) String() string {
 	var s string
@@ -501,7 +565,7 @@ func (header *FLACMetadataBlockHeader) String() string {
 	if header.SeekPoints != 0 {
 		s += fmt.Sprintf("  seekpoints: %d\n", header.SeekPoints)
 	}
-	
+
 	return s
 }
 
@@ -534,7 +598,7 @@ func (data *FLACSeekpointBlock) String() string {
 
 func (data *FLACStreaminfoBlock) String() string {
 	var s string
-	
+
 	s += fmt.Sprintf("  minimum blocksize: %d samples\n", data.MinBlockSize)
 	s += fmt.Sprintf("  maximum blocksize: %d samples\n", data.MaxBlockSize)
 	s += fmt.Sprintf("  minimum framesize: %d bytes\n", data.MinFrameSize)
@@ -621,10 +685,10 @@ func (flacmetadata *FLACMetadata) ReadFLACMetadata(f *os.File) (bool, string) {
 			return true, msg
 		}
 
-		block := make([]byte, int(mbh.Length))
+		block := make([]byte, mbh.Length)
 		readlen, readerr = f.Read(block)
 		if readerr != nil || readlen != int(len(block)) {
-			return true, fmt.Sprintf("FATAL: error reading %s metadata block from '%s': %s", mbh.Type, f.Name(), readerr)
+			return true, fmt.Sprintf("FATAL: only read %d of %d bytes for %s metadata block from '%s': %s", readlen, mbh.Length, mbh.Type, f.Name(), readerr)
 		}
 
 		switch mbh.Type {
@@ -667,20 +731,20 @@ func (flacmetadata *FLACMetadata) ReadFLACMetadata(f *os.File) (bool, string) {
 			if flacmetadata.FLACSeektable.IsPopulated {
 				return true, fmt.Sprintf("FATAL: Two %s block encountered!\n", mbh.Type)
 			}
-			if len(block) % (SEEKPOINT_BLOCK_LEN / 8) != 0 {
-				return true, fmt.Sprintf("FATAL: %s block length is not a multiple of %d\n", mbh.Type, (SEEKPOINT_BLOCK_LEN/8))
+			if len(block)%(SEEKPOINT_BLOCK_LEN/8) != 0 {
+				return true, fmt.Sprintf("FATAL: %s block length is not a multiple of %d\n", mbh.Type, (SEEKPOINT_BLOCK_LEN / 8))
 			}
-			
-			flacmetadata.FLACSeektable.Header = mbh
 
-			buf := bytes.NewBuffer(block)
-			for i := 0 ; buf.Len() > 0 ; i++ {
-				spb := new(FLACSeekpointBlock)
-				spb.FLACParseSeekpointBlock(buf.Next(SEEKPOINT_BLOCK_LEN/8))
-				flacmetadata.FLACSeektable.Data = append(flacmetadata.FLACSeektable.Data, spb)
-			}
-			
+			flacmetadata.FLACSeektable.FLACParseSeekpointBlock(block)
+			flacmetadata.FLACSeektable.Header = mbh
 			flacmetadata.FLACSeektable.IsPopulated = true
+
+		case CUESHEET:
+			csb := new(FLACCuesheetBlock)
+			csb.FLACParseCuesheetBlock(block)
+			flacmetadata.FLACCuesheet.Header = mbh
+			flacmetadata.FLACCuesheet.Data = csb
+			flacmetadata.FLACCuesheet.IsPopulated = true
 
 		default:
 			continue
