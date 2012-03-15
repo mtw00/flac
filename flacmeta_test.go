@@ -8,7 +8,9 @@ import (
 )
 
 func Test(t *testing.T) { TestingT(t) }
+
 type S struct{}
+
 var _ = Suite(&S{})
 
 func (s *S) TestFLACParseMetadataBlockHeader1(c *C) {
@@ -20,37 +22,78 @@ func (s *S) TestFLACParseMetadataBlockHeader1(c *C) {
 	defer f.Close()
 
 	metadata := new(FLACMetadata)
-	metadata.ReadFLACMetadata(f)
+	metadata.Read(f)
 
 	streaminfo := FLACStreaminfo{
-		&FLACMetadataBlockHeader{0, 34, false, 0},
-		&FLACStreaminfoBlock{4096, 4096, 11, 14, 44100, 1, 16, 1014300, "e5ccc967ced6c111530e5c79e33c969e"},
-		true}
+		Header: &FLACMetadataBlockHeader{
+			Type:       0,
+			Length:     34,
+			Last:       false,
+			SeekPoints: 0},
+		Data: &FLACStreaminfoBlock{
+			MinBlockSize:  4096,
+			MaxBlockSize:  4096,
+			MinFrameSize:  11,
+			MaxFrameSize:  14,
+			SampleRate:    44100,
+			Channels:      1,
+			BitsPerSample: 16,
+			TotalSamples:  1014300,
+			MD5Signature:  "e5ccc967ced6c111530e5c79e33c969e"},
+		IsPopulated: true}
 	c.Check(metadata.FLACStreaminfo.Header, Equals, streaminfo.Header)
 	c.Check(metadata.FLACStreaminfo.Data, Equals, streaminfo.Data)
 	c.Check(metadata.FLACStreaminfo.IsPopulated, Equals, streaminfo.IsPopulated)
 
 	comment := FLACVorbisComment{
-		&FLACMetadataBlockHeader{4, 57, false, 0},
-		&FLACVorbisCommentBlock{"reference libFLAC 1.2.1 20070917", 1, []string{"ARTIST=GoGoGo"}},
-		true}
+		Header: &FLACMetadataBlockHeader{
+			Type:       4,
+			Length:     57,
+			Last:       false,
+			SeekPoints: 0},
+		Data: &FLACVorbisCommentBlock{
+			Vendor:        "reference libFLAC 1.2.1 20070917",
+			TotalComments: 1,
+			Comments: []string{
+				"ARTIST=GoGoGo"}},
+		IsPopulated: true}
 	c.Check(metadata.FLACVorbisComment.Header, Equals, comment.Header)
 	c.Check(metadata.FLACVorbisComment.Data, Equals, comment.Data)
 	c.Check(metadata.FLACVorbisComment.IsPopulated, Equals, comment.IsPopulated)
 
-	pad := FLACPadding{&FLACMetadataBlockHeader{1, 8175, true, 0}, nil, true}
+	pad := FLACPadding{
+		Header: &FLACMetadataBlockHeader{
+			Type:       1,
+			Length:     8175,
+			Last:       true,
+			SeekPoints: 0},
+		Data:        nil,
+		IsPopulated: true}
 	c.Check(pad, Equals, metadata.FLACPadding)
 
-	stb := FLACSeektable{&FLACMetadataBlockHeader{3, 54, false, 3},
-		[]*FLACSeekpointBlock{&FLACSeekpointBlock{0, 0, 4096},
-			&FLACSeekpointBlock{438272, 1177, 4096},
-			&FLACSeekpointBlock{880640, 2452, 4096}},
-		true}
-	
+	stb := FLACSeektable{
+		Header: &FLACMetadataBlockHeader{
+			Type:       3,
+			Length:     54,
+			Last:       false,
+			SeekPoints: 3},
+		Data: []*FLACSeekpointBlock{
+			&FLACSeekpointBlock{
+				SampleNumber: 0,
+				Offset:       0,
+				FrameSamples: 4096},
+			&FLACSeekpointBlock{
+				SampleNumber: 438272,
+				Offset:       1177,
+				FrameSamples: 4096},
+			&FLACSeekpointBlock{
+				SampleNumber: 880640,
+				Offset:       2452,
+				FrameSamples: 4096}},
+		IsPopulated: true}
 	c.Check(metadata.FLACSeektable.Header, Equals, stb.Header)
 	c.Check(metadata.FLACSeektable.Data, Equals, stb.Data)
 	c.Check(metadata.FLACSeektable.IsPopulated, Equals, stb.IsPopulated)
-
 }
 
 func (s *S) TestFLACParseMetadataBlockHeader2(c *C) {
@@ -62,17 +105,232 @@ func (s *S) TestFLACParseMetadataBlockHeader2(c *C) {
 	defer f.Close()
 
 	metadata := new(FLACMetadata)
-	metadata.ReadFLACMetadata(f)
+	metadata.Read(f)
 
-	cb := FLACCuesheet{&FLACMetadataBlockHeader{5, 588, false, 0},
-		&FLACCuesheetBlock{"1234567890123\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",
-			0x15888,
-			true,
-			[]byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0},
-			0x4,
-			nil},
-		true}
+	// Test Streaminfo Block
+	streaminfo := FLACStreaminfo{
+		Header: &FLACMetadataBlockHeader{
+			Type:       0,
+			Length:     34,
+			Last:       false,
+			SeekPoints: 0},
+		Data: &FLACStreaminfoBlock{
+			MinBlockSize:  4608,
+			MaxBlockSize:  4608,
+			MinFrameSize:  633,
+			MaxFrameSize:  1323,
+			SampleRate:    44100,
+			Channels:      2,
+			BitsPerSample: 16,
+			TotalSamples:  162496,
+			MD5Signature:  "6291dbd8dcb7dc480132e4c4ba154a17"},
+		IsPopulated: true}
+	c.Check(metadata.FLACStreaminfo.Header, Equals, streaminfo.Header)
+	c.Check(metadata.FLACStreaminfo.Data, Equals, streaminfo.Data)
+	c.Check(metadata.FLACStreaminfo.IsPopulated, Equals, streaminfo.IsPopulated)
+
+	// Test Vorbis Comments
+	comment := FLACVorbisComment{
+		Header: &FLACMetadataBlockHeader{
+			Type:       4,
+			Length:     169,
+			Last:       false,
+			SeekPoints: 0},
+		Data: &FLACVorbisCommentBlock{
+			Vendor:        "reference libFLAC 1.1.0 20030126",
+			TotalComments: 7,
+			Comments: []string{
+				"album=Quod Libet Test Data",
+				"artist=piman",
+				"artist=jzig",
+				"genre=Silence",
+				"tracknumber=02/10",
+				"date=2004",
+				"title=Silence"}},
+		IsPopulated: true}
+	c.Check(metadata.FLACVorbisComment.Header, Equals, comment.Header)
+	c.Check(metadata.FLACVorbisComment.Data, Equals, comment.Data)
+	c.Check(metadata.FLACVorbisComment.IsPopulated, Equals, comment.IsPopulated)
+
+	// Test Cuesheet Block
+	isrc := ""
+	isrc = "1234567890123"
+	for i := len(isrc); i < 128; i++ {
+		isrc += "\x00"
+	}
+
+	// First bit in the Reserved field specifies if this is a CD cuesheet or not.
+	cbReserved := make([]byte, 259)
+	for i := range cbReserved {
+		if i == 0 {
+			cbReserved[i] = 0x80
+			continue
+		}
+		cbReserved[i] = 0x0
+	}
+
+	cti0 := make([]*FLACCuesheetTrackIndexBlock, 1)
+	cti0[0] = &FLACCuesheetTrackIndexBlock{
+		SampleOffset: 0,
+		IndexPoint:   1,
+		Reserved:     []byte{0x00, 0x00, 0x00}}
+
+	cti1 := make([]*FLACCuesheetTrackIndexBlock, 2)
+	cti1[0] = &FLACCuesheetTrackIndexBlock{
+		SampleOffset: 0,
+		IndexPoint:   1,
+		Reserved:     []byte{0x00, 0x00, 0x00}}
+	cti1[1] = &FLACCuesheetTrackIndexBlock{
+		SampleOffset: 588,
+		IndexPoint:   2,
+		Reserved:     []byte{0x00, 0x00, 0x00}}
+
+	cti2 := make([]*FLACCuesheetTrackIndexBlock, 1)
+	cti2[0] = &FLACCuesheetTrackIndexBlock{
+		SampleOffset: 0,
+		IndexPoint:   1,
+		Reserved:     []byte{0x00, 0x00, 0x00}}
+
+	res0 := []byte{0x00, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0}
+	res1 := []byte{0xc0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0}
+	emptyIRSC := "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+
+	ctb := make([]*FLACCuesheetTrackBlock, 4)
+	ctb[0] = &FLACCuesheetTrackBlock{
+		TrackOffset:              0,
+		TrackNumber:              uint8(1),
+		TrackISRC:                "123456789012",
+		TrackType:                0,
+		PreEmphasis:              false,
+		Reserved:                 res0,
+		IndexPoints:              uint8(1),
+		FLACCuesheetTrackIndexes: cti0}
+	ctb[1] = &FLACCuesheetTrackBlock{
+		TrackOffset:              44100,
+		TrackNumber:              2,
+		TrackISRC:                emptyIRSC,
+		TrackType:                1,
+		PreEmphasis:              true,
+		Reserved:                 res1,
+		IndexPoints:              2,
+		FLACCuesheetTrackIndexes: cti1}
+	ctb[2] = &FLACCuesheetTrackBlock{
+		TrackOffset:              88200,
+		TrackNumber:              3,
+		TrackISRC:                emptyIRSC,
+		TrackType:                0,
+		PreEmphasis:              false,
+		Reserved:                 res0,
+		IndexPoints:              1,
+		FLACCuesheetTrackIndexes: cti2}
+	ctb[3] = &FLACCuesheetTrackBlock{
+		TrackOffset:              162496,
+		TrackNumber:              170,
+		TrackISRC:                emptyIRSC,
+		TrackType:                0,
+		PreEmphasis:              false,
+		Reserved:                 res0,
+		IndexPoints:              0,
+		FLACCuesheetTrackIndexes: nil}
+
+	cb := FLACCuesheet{
+		Header: &FLACMetadataBlockHeader{
+			Type:       5,
+			Length:     588,
+			Last:       false,
+			SeekPoints: 0},
+		Data: &FLACCuesheetBlock{
+			MediaCatalogNumber: isrc,
+			LeadinSamples:      0x15888,
+			IsCompactDisc:      true,
+			Reserved:           cbReserved,
+			TotalTracks:        0x4,
+			FLACCuesheetTracks: ctb},
+		IsPopulated: true}
 	c.Check(metadata.FLACCuesheet.Header, Equals, cb.Header)
-	c.Check(metadata.FLACCuesheet.Data, Equals, cb.Data)
 	c.Check(metadata.FLACCuesheet.IsPopulated, Equals, cb.IsPopulated)
+	for x := range ctb {
+		c.Check(metadata.FLACCuesheet.Data.FLACCuesheetTracks[x], Equals, ctb[x])
+		for y := range metadata.FLACCuesheet.Data.FLACCuesheetTracks[x].FLACCuesheetTrackIndexes {
+			c.Check(metadata.FLACCuesheet.Data.FLACCuesheetTracks[x].FLACCuesheetTrackIndexes[y], Equals, ctb[x].FLACCuesheetTrackIndexes[y])
+		}
+	}
+
+	// Test Seek Table
+	stb := FLACSeektable{
+		Header: &FLACMetadataBlockHeader{
+			Type:       3,
+			Length:     108,
+			Last:       false,
+			SeekPoints: 6},
+		Data: []*FLACSeekpointBlock{
+			&FLACSeekpointBlock{
+				SampleNumber: 0,
+				Offset:       0,
+				FrameSamples: 4608},
+			&FLACSeekpointBlock{
+				SampleNumber: 41472,
+				Offset:       11852,
+				FrameSamples: 4608},
+			&FLACSeekpointBlock{
+				SampleNumber: 50688,
+				Offset:       14484,
+				FrameSamples: 4608},
+			&FLACSeekpointBlock{
+				SampleNumber: 87552,
+				Offset:       25022,
+				FrameSamples: 4608},
+			&FLACSeekpointBlock{
+				SampleNumber: 105984,
+				Offset:       30284,
+				FrameSamples: 4608},
+			&FLACSeekpointBlock{
+				SampleNumber: 18446744073709551615,
+				Offset:       0,
+				FrameSamples: 0}},
+		IsPopulated: true}
+	c.Check(metadata.FLACSeektable.Header, Equals, stb.Header)
+	c.Check(metadata.FLACSeektable.Data, Equals, stb.Data)
+	c.Check(metadata.FLACSeektable.IsPopulated, Equals, stb.IsPopulated)
+
+	// Test Picture
+	pb := FLACPicture{
+		Header: &FLACMetadataBlockHeader{
+			Type:       6,
+			Length:     199,
+			Last:       false,
+			SeekPoints: 0},
+		Data: &FLACPictureBlock{
+			PictureType:        "Cover (front)",
+			MimeType:           "image/png",
+			PictureDescription: "A pixel.",
+			Width:              1,
+			Height:             1,
+			ColorDepth:         24,
+			NumColors:          0,
+			Length:             150},
+		IsPopulated: true}
+	c.Check(metadata.FLACPictures[0].Header, Equals, pb.Header)
+	c.Check(metadata.FLACPictures[0].Data.PictureType, Equals, pb.Data.PictureType)
+	c.Check(metadata.FLACPictures[0].Data.MimeType, Equals, pb.Data.MimeType)
+	c.Check(metadata.FLACPictures[0].Data.PictureDescription, Equals, pb.Data.PictureDescription)
+	c.Check(metadata.FLACPictures[0].Data.Width, Equals, pb.Data.Width)
+	c.Check(metadata.FLACPictures[0].Data.Height, Equals, pb.Data.Height)
+	c.Check(metadata.FLACPictures[0].Data.ColorDepth, Equals, pb.Data.ColorDepth)
+	c.Check(metadata.FLACPictures[0].Data.NumColors, Equals, pb.Data.NumColors)
+	c.Check(metadata.FLACPictures[0].Data.Length, Equals, pb.Data.Length)
+	c.Check(metadata.FLACPictures[0].IsPopulated, Equals, pb.IsPopulated)
+
+	// Test Padding
+	pad := FLACPadding{
+		Header: &FLACMetadataBlockHeader{
+			Type:       1,
+			Length:     3060,
+			Last:       true,
+			SeekPoints: 0},
+		Data:        nil,
+		IsPopulated: true}
+	c.Check(metadata.FLACPadding.Header, Equals, pad.Header)
+	c.Check(metadata.FLACPadding.Data, Equals, pad.Data)
+	c.Check(metadata.FLACPadding.IsPopulated, Equals, pad.IsPopulated)
 }
