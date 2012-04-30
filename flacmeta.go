@@ -1,4 +1,18 @@
-// Package flacmeta provides an API to extract and print metadata from FLAC audio files.
+// flacmeta.go - A library to process FLAC metadata.
+// Copyright (C) 2012 Matthew White <mtw@vne.net>
+// 
+// This program is free software; you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation; either version 2 of the License, or (at
+// your option) any later version.
+//
+// This program is distributed in the hope that it will be useful, but
+// WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+// or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+// for more details.
+
+
+// Package flacmeta provides an API to process metadata from FLAC audio files.
 package flacmeta
 
 // TODO: make NewZZZ functions to create Header+Data blocks
@@ -10,8 +24,6 @@ import (
 	"io"
 	"strings"
 )
-
-func NewFLACMetadata(rw io.ReadWriter) FLACMetadata
 
 // METADATA_BLOCK_TYPES enumerates types of metadata blocks in a FLAC file.
 type METADATA_BLOCK_TYPE uint32
