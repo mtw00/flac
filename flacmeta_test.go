@@ -22,14 +22,15 @@ func (s *S) TestParseMetadataBlockHeader1(c *C) {
 	defer f.Close()
 
 	metadata := new(Metadata)
-	err = metadata.Read(f); if err != nil {
+	err = metadata.Read(f)
+	if err != nil {
 		fmt.Printf("Error reading test file: %s\n", err)
 		os.Exit(-1)
 	}
 
 	streaminfo := Streaminfo{
 		Header: &MetadataBlockHeader{
-			Type:       STREAMINFO,
+			Type:       MetadataStreaminfo,
 			Length:     34,
 			Last:       false,
 			SeekPoints: 0},
@@ -50,7 +51,7 @@ func (s *S) TestParseMetadataBlockHeader1(c *C) {
 
 	comment := VorbisComment{
 		Header: &MetadataBlockHeader{
-			Type:       VORBIS_COMMENT,
+			Type:       MetadataVorbisComment,
 			Length:     57,
 			Last:       false,
 			SeekPoints: 0},
@@ -66,7 +67,7 @@ func (s *S) TestParseMetadataBlockHeader1(c *C) {
 
 	pad := Padding{
 		Header: &MetadataBlockHeader{
-			Type:       PADDING,
+			Type:       MetadataPadding,
 			Length:     8175,
 			Last:       true,
 			SeekPoints: 0},
@@ -77,7 +78,7 @@ func (s *S) TestParseMetadataBlockHeader1(c *C) {
 
 	stb := Seektable{
 		Header: &MetadataBlockHeader{
-			Type:       SEEKTABLE,
+			Type:       MetadataSeektable,
 			Length:     54,
 			Last:       false,
 			SeekPoints: 3},
@@ -114,7 +115,7 @@ func (s *S) TestParseMetadataBlockHeader2(c *C) {
 	// Test Streaminfo Block
 	streaminfo := Streaminfo{
 		Header: &MetadataBlockHeader{
-			Type:       STREAMINFO,
+			Type:       MetadataStreaminfo,
 			Length:     34,
 			Last:       false,
 			SeekPoints: 0},
@@ -136,7 +137,7 @@ func (s *S) TestParseMetadataBlockHeader2(c *C) {
 	// Test Vorbis Comments
 	comment := VorbisComment{
 		Header: &MetadataBlockHeader{
-			Type:       VORBIS_COMMENT,
+			Type:       MetadataVorbisComment,
 			Length:     169,
 			Last:       false,
 			SeekPoints: 0},
@@ -239,7 +240,7 @@ func (s *S) TestParseMetadataBlockHeader2(c *C) {
 
 	cb := Cuesheet{
 		Header: &MetadataBlockHeader{
-			Type:       CUESHEET,
+			Type:       MetadataCuesheet,
 			Length:     588,
 			Last:       false,
 			SeekPoints: 0},
@@ -263,7 +264,7 @@ func (s *S) TestParseMetadataBlockHeader2(c *C) {
 	// Test Seek Table
 	stb := Seektable{
 		Header: &MetadataBlockHeader{
-			Type:       SEEKTABLE,
+			Type:       MetadataSeektable,
 			Length:     108,
 			Last:       false,
 			SeekPoints: 6},
@@ -300,7 +301,7 @@ func (s *S) TestParseMetadataBlockHeader2(c *C) {
 	// Test Picture
 	pb := Picture{
 		Header: &MetadataBlockHeader{
-			Type:       PICTURE,
+			Type:       MetadataPicture,
 			Length:     199,
 			Last:       false,
 			SeekPoints: 0},
@@ -328,7 +329,7 @@ func (s *S) TestParseMetadataBlockHeader2(c *C) {
 	// Test Padding
 	pad := Padding{
 		Header: &MetadataBlockHeader{
-			Type:       PADDING,
+			Type:       MetadataPadding,
 			Length:     3060,
 			Last:       true,
 			SeekPoints: 0},
