@@ -164,40 +164,28 @@ func (s *S) TestParseMetadataBlockHeader2(c *C) {
 		isrc += "\x00"
 	}
 
-	// First bit in the Reserved field specifies if this is a CD cuesheet or not.
-	cbReserved := make([]byte, 259)
-	for i := range cbReserved {
-		if i == 0 {
-			cbReserved[i] = 0x80
-			continue
-		}
-		cbReserved[i] = 0x0
-	}
-
 	cti0 := make([]*CuesheetTrackIndexBlock, 1)
 	cti0[0] = &CuesheetTrackIndexBlock{
 		SampleOffset: 0,
 		IndexPoint:   1,
-		Reserved:     []byte{0x00, 0x00, 0x00}}
+	}
 
 	cti1 := make([]*CuesheetTrackIndexBlock, 2)
 	cti1[0] = &CuesheetTrackIndexBlock{
 		SampleOffset: 0,
 		IndexPoint:   1,
-		Reserved:     []byte{0x00, 0x00, 0x00}}
+	}
 	cti1[1] = &CuesheetTrackIndexBlock{
 		SampleOffset: 588,
 		IndexPoint:   2,
-		Reserved:     []byte{0x00, 0x00, 0x00}}
+	}
 
 	cti2 := make([]*CuesheetTrackIndexBlock, 1)
 	cti2[0] = &CuesheetTrackIndexBlock{
 		SampleOffset: 0,
 		IndexPoint:   1,
-		Reserved:     []byte{0x00, 0x00, 0x00}}
+	}
 
-	res0 := []byte{0x00, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0}
-	res1 := []byte{0xc0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0}
 	emptyIRSC := "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
 
 	ctb := make([]*CuesheetTrackBlock, 4)
@@ -207,7 +195,6 @@ func (s *S) TestParseMetadataBlockHeader2(c *C) {
 		TrackISRC:            "123456789012",
 		TrackType:            0,
 		PreEmphasis:          false,
-		Reserved:             res0,
 		IndexPoints:          uint8(1),
 		CuesheetTrackIndexes: cti0}
 	ctb[1] = &CuesheetTrackBlock{
@@ -216,7 +203,6 @@ func (s *S) TestParseMetadataBlockHeader2(c *C) {
 		TrackISRC:            emptyIRSC,
 		TrackType:            1,
 		PreEmphasis:          true,
-		Reserved:             res1,
 		IndexPoints:          2,
 		CuesheetTrackIndexes: cti1}
 	ctb[2] = &CuesheetTrackBlock{
@@ -225,7 +211,6 @@ func (s *S) TestParseMetadataBlockHeader2(c *C) {
 		TrackISRC:            emptyIRSC,
 		TrackType:            0,
 		PreEmphasis:          false,
-		Reserved:             res0,
 		IndexPoints:          1,
 		CuesheetTrackIndexes: cti2}
 	ctb[3] = &CuesheetTrackBlock{
@@ -234,7 +219,6 @@ func (s *S) TestParseMetadataBlockHeader2(c *C) {
 		TrackISRC:            emptyIRSC,
 		TrackType:            0,
 		PreEmphasis:          false,
-		Reserved:             res0,
 		IndexPoints:          0,
 		CuesheetTrackIndexes: nil}
 
@@ -248,7 +232,6 @@ func (s *S) TestParseMetadataBlockHeader2(c *C) {
 			MediaCatalogNumber: isrc,
 			LeadinSamples:      0x15888,
 			IsCompactDisc:      true,
-			Reserved:           cbReserved,
 			TotalTracks:        0x4,
 			CuesheetTracks:     ctb},
 		IsPopulated: true}
