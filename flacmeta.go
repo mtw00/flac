@@ -195,10 +195,6 @@ func (mbt MetadataBlockType) String() string {
 	return "INVALID"
 }
 
-// Implement fmt.GoStringer() to print the string and integer representation of METADATA_BLOCK_TYPEs.
-func (mbt MetadataBlockType) GoString() string {
-	return fmt.Sprintf("%d (%s)", int(mbt), mbt)
-}
 
 // Begin base metadata block types.
 
