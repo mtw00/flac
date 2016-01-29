@@ -1,6 +1,6 @@
 // flacmeta.go - A library to process FLAC metadata.
 // Copyright (C) 2012 Matthew White <mtw@vne.net>
-// 
+//
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
 // the Free Software Foundation; either version 2 of the License, or (at
@@ -14,29 +14,27 @@
 // Package flac provides an API to process metadata from FLAC audio files.
 package flac
 
-// TODO: make NewZZZ functions to create Header+Data blocks
 import (
 	"bytes"
 	"encoding/binary"
-	"encoding/hex"
 	"fmt"
 	"io"
 )
 
-// METADATA_BLOCK_TYPES enumerates types of metadata blocks in a FLAC file.
+// MetadataBlockTypes enumerates types of metadata blocks in a FLAC file.
 type MetadataBlockType uint32
 
 const (
 	FlacSignature = "fLaC"
 
-	MetadataStreaminfo    MetadataBlockType = iota // 0
-	MetadataPadding                                // 1
-	MetadataApplication                            // 2
-	MetadataSeektable                              // 3
-	MetadataVorbisComment                          // 4
-	MetadataCuesheet                               // 5
-	MetadataPicture                                // 6
-	MetadataInvalid       MetadataBlockType = 127
+	MetadataStreaminfo MetadataBlockType = iota
+	MetadataPadding
+	MetadataApplication
+	MetadataSeektable
+	MetadataVorbisComment
+	MetadataCuesheet
+	MetadataPicture
+	MetadataInvalid MetadataBlockType = 127
 
 	// Metadata field sizes, in bits.
 	ApplicationIdLen = 32
@@ -115,8 +113,8 @@ const (
 	StreaminfoTotalSamplesMaximum  = 1 << StreaminfoTotalSamplesLen
 )
 
-// PictureTypeMap enumerates the types of pictures in a PictureBlock.
-var PictureTypeMap = map[uint32]string{
+// PictureTypes enumerates the types of pictures in a PictureBlock.
+var PictureTypes = map[uint32]string{
 	0:  "Other",
 	1:  "File Icon",
 	2:  "Other File Icon",
@@ -140,9 +138,8 @@ var PictureTypeMap = map[uint32]string{
 	20: "Publisher/Studio Logotype",
 }
 
-// LookupHeaderType returns a const representing a METADATA_BLOCK_TYPE or
-// INVALID for unknown/undefined block type.
-func LookupHeaderType(i uint32) MetadataBlockType {
+// HeaderType returns a const representing a MetadataBlockType or Invalid for an unknown/undefined block type.
+func HeaderType(i uint32) MetadataBlockType {
 	switch i {
 	case 0:
 		return MetadataStreaminfo
@@ -164,17 +161,16 @@ func LookupHeaderType(i uint32) MetadataBlockType {
 	return MetadataInvalid
 }
 
-// LookupPictureType looks up the type of a picture based on numeric id.
-func LookupPictureType(k uint32) string {
-	t := PictureTypeMap[k]
-	switch t {
-	case "":
+// PictureType looks up the type of a picture based on numeric id.
+func PictureType(k uint32) string {
+	t := PictureTypes[k]
+	if t == "" {
 		return "UNKNOWN"
 	}
 	return t
 }
 
-// Implement fmt.Stringer() to print the string representation of METADATA_BLOCK_TYPEs.
+// String implements the Stringer interface for MetadataBlockTypes.
 func (mbt MetadataBlockType) String() string {
 	switch mbt {
 	case MetadataStreaminfo:
@@ -195,40 +191,41 @@ func (mbt MetadataBlockType) String() string {
 	return "INVALID"
 }
 
-
 // Begin base metadata block types.
 
-// ApplicationBlock contains the ID and binary data of an embedded executable.
-// Only one ApplicationBlock is allowed per file.
+// Application contains the ID and binary data of an embedded executable. Only one ApplicationBlock is allowed per file.
 type ApplicationBlock struct {
 	Id   uint32
 	Data []byte
 }
 
+// Cuesheet contains information about an embedded cue sheet.
 type CuesheetBlock struct {
 	MediaCatalogNumber string
 	LeadinSamples      uint64
 	IsCompactDisc      bool
-	//Reserved           []byte
-	TotalTracks    uint8 // > 1 && < 100 (for CD-DA)
-	CuesheetTracks []*CuesheetTrackBlock
+	TotalTracks        uint8
+	Tracks             []*CuesheetTrack
+	// Reserved           []byte
 }
 
-type CuesheetTrackBlock struct {
-	TrackOffset uint64
-	TrackNumber uint8
-	TrackISRC   string
-	TrackType   uint8
+// CuesheetTrack represents an individual cue sheet track.
+type CuesheetTrack struct {
+	Offset      uint64
+	Number      uint8
+	ISRC        string
+	Type        uint8
 	PreEmphasis bool
 	// Reserved             []byte // 6 + 13 * 8
-	IndexPoints          uint8
-	CuesheetTrackIndexes []*CuesheetTrackIndexBlock
+	IndexPoints uint8
+	Indexes     []*TrackIndex
 }
 
-type CuesheetTrackIndexBlock struct {
+// CuesheetTrackIndex represents the position of a track within the file.
+type TrackIndex struct {
 	SampleOffset uint64
 	IndexPoint   uint8
-	//Reserved     []byte // 3 * 8 bits. All bits must be set to zero.
+	// Reserved     []byte // 3 * 8 bits. All bits must be set to zero.
 }
 
 // MetadataBlockHeader is the common element for every metadata block in a
@@ -242,30 +239,27 @@ type MetadataBlockHeader struct {
 	SeekPoints uint16
 }
 
-// PictureBlock contains information and binary data about pictures that
-// are embedded in the FLAC file. Muitiple PictureBlocks are allow per file.
+// Picture contains information and binary data about pictures that are embedded in the FLAC file. Muitiple Picture blocks are allow per file.
 type PictureBlock struct {
-	PictureType        string
-	MimeType           string
-	PictureDescription string
-	Width              uint32
-	Height             uint32
-	ColorDepth         uint32
-	NumColors          uint32
-	Length             uint32
-	PictureBlob        string
+	PictureType string
+	MimeType    string
+	Description string
+	Width       uint32
+	Height      uint32
+	ColorDepth  uint32
+	NumColors   uint32
+	Length      uint32
+	PictureBlob []byte
 }
 
-// SeekpointBlock contains locations within the FLAC file that allow
-// an application to quickly jump to pre-defined locations in the audio stream.
+// Seekpoint contains locations within the FLAC file that allow an application to quickly jump to pre-defined locations in the audio stream.
 type SeekpointBlock struct {
 	SampleNumber uint64
 	Offset       uint64
 	FrameSamples uint16
 }
 
-// StreaminfoBlock contains information about the audio stream.
-// Only one StreaminfoBlock is allowed per file. It is also the only required block.
+// Streaminfo contains information about the audio stream. Only one StreaminfoBlock is allowed per file; it is also the only required block.
 type StreaminfoBlock struct {
 	MinBlockSize  uint16
 	MaxBlockSize  uint16
@@ -278,9 +272,7 @@ type StreaminfoBlock struct {
 	MD5Signature  string
 }
 
-// VorbisCommentBlock contains general information about the song/audio stream.
-// Common fields are Artist, Song Title and Album.
-// Only one VorbisCommentBlock is allowed per file.
+// VorbisComment contains information about the song/audio stream, such as Artist, Song Title, and Album. Only one VorbisCommentBlock is allowed per file.
 type VorbisCommentBlock struct {
 	Vendor        string
 	TotalComments uint32
@@ -299,7 +291,7 @@ type Application struct {
 	IsPopulated bool
 }
 
-// Cuesheet describes a "Cue sheet".
+// Cuesheet is a cue sheet; details on multiple tracks within a single file.
 type Cuesheet struct {
 	Header      *MetadataBlockHeader
 	Data        *CuesheetBlock
@@ -353,10 +345,8 @@ type Metadata struct {
 	TotalBlocks uint8
 }
 
-// Begin ParseX functions.
-
-// Parse parses the bits of a FLAC Application block.
-func (ab *ApplicationBlock) Parse(block []byte) error {
+// Parse parses the bits of an Application block.
+func (b *ApplicationBlock) Parse(block []byte) error {
 	// http://flac.sourceforge.net/format.html#metadata_block_application
 	// Field Len  | Data
 	// -----------+--------------------------------------------------------
@@ -366,23 +356,23 @@ func (ab *ApplicationBlock) Parse(block []byte) error {
 
 	buf := bytes.NewBuffer(block)
 
-	ab.Id = binary.BigEndian.Uint32(buf.Next(ApplicationIdLen))
+	b.Id = binary.BigEndian.Uint32(buf.Next(ApplicationIdLen))
 	if buf.Len()%8 != 0 {
-		return fmt.Errorf("Malformed ApplictionBlock: the data field length must be a mulitple of 8.")
+		return fmt.Errorf("malformed ApplictionBlock; field length %d not a multiple of 8", buf.Len())
 	}
-	ab.Data = buf.Bytes()
+	b.Data = buf.Bytes()
 	return nil
 }
 
-// Parse parses the bits of a FLAC Cue Sheet block.
-func (cb *CuesheetBlock) Parse(block []byte) error {
+// Parse parses the bits of a Cue Sheet block.
+func (b *CuesheetBlock) Parse(block []byte) error {
 	// http://flac.sourceforge.net/format.html#metadata_block_cuesheet
 	// Field Len  | Data
 	// -----------+--------------------------------------------------------
 	// 128 * 8    | Media catalog number, in ASCII printable characters. In general,
 	//            | the media catalog number may be 0 to 128 bytes long; any unused
-	//	      | characters should be right-padded with NUL characters. For CD-DA,
-	//	      | this is a thirteen digit number, followed by 115 NUL bytes.
+	//   	      | characters should be right-padded with NUL characters. For CD-DA,
+	//	          | this is a thirteen digit number, followed by 115 NUL bytes.
 	//            |
 	// 64         | The number of lead-in samples. This field has meaning only for CD-DA
 	//            | cuesheets; for other uses it should be 0. For CD-DA, the lead-in is
@@ -408,33 +398,34 @@ func (cb *CuesheetBlock) Parse(block []byte) error {
 	const trackType = 0x01
 	buf := bytes.NewBuffer(block)
 
-	cb.MediaCatalogNumber = string(buf.Next(CuesheetMediaCatalogNumberLen / 8))
-	cb.LeadinSamples = binary.BigEndian.Uint64(buf.Next(CuesheetLeadinSamplesLen / 8))
+	b.MediaCatalogNumber = string(buf.Next(CuesheetMediaCatalogNumberLen / 8))
+	b.LeadinSamples = binary.BigEndian.Uint64(buf.Next(CuesheetLeadinSamplesLen / 8))
 
 	res := buf.Next(CuesheetReservedLen / 8)
 
-	if res[0]>>7&trackType == 1 {
-		cb.IsCompactDisc = true
+	b.IsCompactDisc = res[0]>>7&trackType == 1
+	b.TotalTracks = uint8(buf.Next(CuesheetTotalTracksLen / 8)[0])
+
+	if b.TotalTracks < 1 {
+		return fmt.Errorf("TotalTracks value must be greater than >= 1")
 	}
 
-	cb.TotalTracks = uint8(buf.Next(CuesheetTotalTracksLen / 8)[0])
-
-	if cb.TotalTracks < 1 {
-		return fmt.Errorf("FATAL: CuesheetBlock.TotalTracks value must be greater than >= 1.")
-	}
-
-	for i := 0; i < int(cb.TotalTracks); i++ {
-		cb.ParseTrack(buf.Next(CuesheetTrackBlockLen / 8))
-		for j := 0; j < int(cb.CuesheetTracks[i].IndexPoints); j++ {
-			cb.CuesheetTracks[i].ParseIndex(buf.Next(CuesheetTrackIndexBlockLen / 8))
+	for i := 0; i < int(b.TotalTracks); i++ {
+		if err := b.ParseTrack(buf.Next(CuesheetTrackBlockLen / 8)); err != nil {
+			return fmt.Errorf("failed to parse track: %v", err)
+		}
+		for j := 0; j < int(b.Tracks[i].IndexPoints); j++ {
+			if err := b.Tracks[i].Parse(buf.Next(CuesheetTrackIndexBlockLen / 8)); err != nil {
+				return fmt.Errorf("failed to parse track index: %v", err)
+			}
 		}
 	}
 
 	return nil
 }
 
-// Parse parses the bits of a FLAC Cue Sheet Track block.
-func (cb *CuesheetBlock) ParseTrack(block []byte) error {
+// Parse parses the bits of a Cue Sheet Track block.
+func (b *CuesheetBlock) ParseTrack(block []byte) error {
 	// http://flac.sourceforge.net/format.html#cuesheet_track
 	// Field Len  | Data
 	// -----------+--------------------------------------------------------
@@ -474,35 +465,27 @@ func (cb *CuesheetBlock) ParseTrack(block []byte) error {
 	const trackType = 0x01
 	buf := bytes.NewBuffer(block)
 
-	ctb := new(CuesheetTrackBlock)
+	t := new(CuesheetTrack)
 
-	ctb.TrackOffset = binary.BigEndian.Uint64(buf.Next(CuesheetTrackTrackOffsetLen / 8))
+	t.Offset = binary.BigEndian.Uint64(buf.Next(CuesheetTrackTrackOffsetLen / 8))
 
-	ctb.TrackNumber = uint8(buf.Next(CuesheetTrackTrackNumberLen / 8)[0])
-	if ctb.TrackNumber == 0 {
-		return fmt.Errorf("FATAL: Cuesheet track value of 0 is not allowed.")
+	if t.Number = uint8(buf.Next(CuesheetTrackTrackNumberLen / 8)[0]); t.Number == 0 {
+		return fmt.Errorf("cuesheet track value of 0 is not allowed")
 	}
-
-	ctb.TrackISRC = string(buf.Next(CuesheetTrackTrackISRCLen / 8))
+	t.ISRC = string(buf.Next(CuesheetTrackTrackISRCLen / 8))
 
 	// The first byte of the reserved field contain the flags for track type and preemphasis.
 	res := buf.Next(CuesheetTrackReservedLen / 8)[0]
-
-	ctb.TrackType = uint8(res >> 7 & trackType)
-
-	if res>>6&trackType == 1 {
-		ctb.PreEmphasis = true
-	}
-
-	ctb.IndexPoints = uint8(buf.Next(CuesheetTrackIndexPointsLen / 8)[0])
-
-	cb.CuesheetTracks = append(cb.CuesheetTracks, ctb)
+	t.Type = uint8(res >> 7 & trackType)
+	t.PreEmphasis = res>>6&trackType == 1
+	t.IndexPoints = uint8(buf.Next(CuesheetTrackIndexPointsLen / 8)[0])
+	b.Tracks = append(b.Tracks, t)
 
 	return nil
 }
 
 // Parse parses the bits of a Cue Sheet Track Index block.
-func (ctb *CuesheetTrackBlock) ParseIndex(block []byte) error {
+func (b *CuesheetTrack) Parse(block []byte) error {
 	// http://flac.sourceforge.net/format.html#cuesheet_track_index
 	// Field Len  | Data
 	// -----------+--------------------------------------------------------
@@ -521,20 +504,20 @@ func (ctb *CuesheetTrackBlock) ParseIndex(block []byte) error {
 
 	buf := bytes.NewBuffer(block)
 
-	cti := new(CuesheetTrackIndexBlock)
+	ti := new(TrackIndex)
 
-	cti.SampleOffset = binary.BigEndian.Uint64(buf.Next(CuesheetTrackIndexSampleOffsetLen / 8))
-	if cti.SampleOffset%588 != 0 {
-		return fmt.Errorf("Invalid value '%d' for Cuesheet Track Index Sample Offset: must be divisible by 588.", cti.SampleOffset)
+	ti.SampleOffset = binary.BigEndian.Uint64(buf.Next(CuesheetTrackIndexSampleOffsetLen / 8))
+	if ti.SampleOffset%588 != 0 {
+		return fmt.Errorf("invalid value %d for Cuesheet Track Index Sample Offset: must be divisible by 588.", ti.SampleOffset)
 	}
 
-	cti.IndexPoint = uint8(buf.Next(CuesheetTrackIndexPointLen / 8)[0])
-	ctb.CuesheetTrackIndexes = append(ctb.CuesheetTrackIndexes, cti)
+	ti.IndexPoint = uint8(buf.Next(CuesheetTrackIndexPointLen / 8)[0])
+	b.Indexes = append(b.Indexes, ti)
 
 	return nil
 }
 
-// Parse parses the bits of a FLAC Metadata Block Header.
+// Parse parses the bits of a Metadata Block Header.
 func (mbh *MetadataBlockHeader) Parse(block []byte) error {
 	// http://flac.sourceforge.net/format.html#metadata_block_header
 	// Field Len  | Data
@@ -560,22 +543,22 @@ func (mbh *MetadataBlockHeader) Parse(block []byte) error {
 	}
 
 	bt := blockType & bits >> 24
-	mbh.Type = LookupHeaderType(bt)
+	mbh.Type = HeaderType(bt)
 	if mbh.Type == MetadataInvalid {
-		return fmt.Errorf("FATAL: Encountered an invalid or unknown block type: %d.", bt)
+		return fmt.Errorf("invalid or unknown block type: %d", bt)
 	}
 	mbh.Length = blockLen & bits
 
 	if mbh.Type == MetadataSeektable {
 		if mbh.Length%(SeekpointBlockLen/8) != 0 {
-			return fmt.Errorf("FATAL: Seektable block length is not a multiple of %d.", SeekpointBlockLen/8)
+			return fmt.Errorf("seektable block length %d is not a multiple of %d.", mbh.Length, SeekpointBlockLen/8)
 		}
 		mbh.SeekPoints = uint16(mbh.Length / (SeekpointBlockLen / 8))
 	}
 	return nil
 }
 
-// Parse parses the bits of a FLAC picture block.
+// Parse parses the bits of a picture block.
 func (pb *PictureBlock) Parse(block []byte) error {
 	// http://flac.sourceforge.net/format.html#metadata_block_picture
 	// Field Len  | Data
@@ -608,23 +591,21 @@ func (pb *PictureBlock) Parse(block []byte) error {
 	// TODO: Add error checking here.
 	buf := bytes.NewBuffer(block)
 
-	pb.PictureType = LookupPictureType(binary.BigEndian.Uint32(buf.Next(PictureTypeLen / 8)))
+	pb.PictureType = PictureType(binary.BigEndian.Uint32(buf.Next(PictureTypeLen / 8)))
 
-	len := binary.BigEndian.Uint32(buf.Next(PictureMimeLengthLen / 8))
-	pb.MimeType = string(buf.Next(int(len)))
+	picLength := binary.BigEndian.Uint32(buf.Next(PictureMimeLengthLen / 8))
+	pb.MimeType = string(buf.Next(int(picLength)))
 
-	len = binary.BigEndian.Uint32(buf.Next(PictureDescriptionLengthLen / 8))
-	if len > 0 {
-		pb.PictureDescription = string(buf.Next(int(len)))
-	} else {
-		pb.PictureDescription = ""
+	picLength = binary.BigEndian.Uint32(buf.Next(PictureDescriptionLengthLen / 8))
+	if picLength > 0 {
+		pb.Description = string(buf.Next(int(picLength)))
 	}
 	pb.Width = binary.BigEndian.Uint32(buf.Next(PictureWidthLen / 8))
 	pb.Height = binary.BigEndian.Uint32(buf.Next(PictureHeightLen / 8))
 	pb.ColorDepth = binary.BigEndian.Uint32(buf.Next(PictureColorDepthLen / 8))
 	pb.NumColors = binary.BigEndian.Uint32(buf.Next(PictureNumberOfColorsLen / 8))
 	pb.Length = binary.BigEndian.Uint32(buf.Next(PictureLengthLen / 8))
-	pb.PictureBlob = hex.Dump(buf.Next(int(pb.Length)))
+	pb.PictureBlob = buf.Next(int(pb.Length))
 
 	return nil
 }
@@ -656,12 +637,6 @@ func (stb *Seektable) Parse(block []byte) error {
 	for i := 0; buf.Len() > 0; i++ {
 		spb := new(SeekpointBlock)
 		binary.Read(buf, binary.BigEndian, spb)
-
-		// These got replaced by binary.Read
-		//spb.SampleNumber = binary.BigEndian.Uint64(buf.Next(SeekpointSampleLen / 8))
-		//spb.Offset = binary.BigEndian.Uint64(buf.Next(SeekpointSampleOffsetLen / 8))
-		//spb.FrameSamples = binary.BigEndian.Uint16(buf.Next(SeekpointTargetFrameSamplesLen / 8))
-
 		stb.Data = append(stb.Data, spb)
 	}
 	return nil
@@ -682,9 +657,9 @@ func (sib *StreaminfoBlock) Parse(block []byte) error {
 	//            |
 	// 20         | Sample rate (in Hz). Must be > 0 && < 655350
 	//            |
-	// 3          | Number of channels - 1. Why -1?
+	// 3          | Number of channels - 1.
 	//            |
-	// 5          | Bits per sample - 1. Why -1?
+	// 5          | Bits per sample - 1.
 	//            |
 	// 36         | Total number of samples in the stream. 0 == Implied Unknown
 	//            |
@@ -712,11 +687,11 @@ func (sib *StreaminfoBlock) Parse(block []byte) error {
 
 	mbs := buf.Next(StreaminfoMinBlockSizeLen / 8)
 	if len(mbs) != StreaminfoMinBlockSizeLen/8 {
-		return fmt.Errorf("FATAL: error reading MinBlockSize field. Expected %d byte(s), got %d.", StreaminfoMinBlockSizeLen/8, len(mbs))
+		return fmt.Errorf("error reading MinBlockSize field; expected %d byte(s), got %d", StreaminfoMinBlockSizeLen/8, len(mbs))
 	}
 	sib.MinBlockSize = binary.BigEndian.Uint16(mbs)
 	if sib.MinBlockSize > 0 && sib.MinBlockSize < 16 {
-		return fmt.Errorf("FATAL: invalid MinBlockSize '%d'. Must be >= 16.", sib.MinBlockSize)
+		return fmt.Errorf("invalid MinBlockSize '%d'; must be >= 16", sib.MinBlockSize)
 	}
 
 	bfsLen := (StreaminfoMaxBlockSizeLen + StreaminfoMinFrameSizeLen + StreaminfoMaxFrameSizeLen) / 8
@@ -724,7 +699,7 @@ func (sib *StreaminfoBlock) Parse(block []byte) error {
 	bits = binary.BigEndian.Uint64(buf.Next(bfsLen))
 	sib.MaxBlockSize = uint16((minFSMask & bits) >> 48)
 	if sib.MaxBlockSize < 16 {
-		return fmt.Errorf("FATAL: invalid MaxBlockSize '%d'. Must be > 16.", sib.MaxBlockSize)
+		return fmt.Errorf("invalid MaxBlockSize '%d'; must be > 16", sib.MaxBlockSize)
 	}
 	sib.MinFrameSize = uint32((minFSMask & bits) >> 24)
 	sib.MaxFrameSize = uint32(maxFSMask & bits)
@@ -736,7 +711,7 @@ func (sib *StreaminfoBlock) Parse(block []byte) error {
 
 	sib.SampleRate = uint32((sampRateMask & bits) >> 44)
 	if sib.SampleRate == 0 || sib.SampleRate >= 655350 {
-		return fmt.Errorf("FATAL: invalid SampleRate: %d. Must be > 0 and < 655350.", sib.SampleRate)
+		return fmt.Errorf("invalid SampleRate '%d'; must be > 0 and < 655350", sib.SampleRate)
 	}
 	sib.Channels = uint8((chMask&bits)>>41) + 1
 	sib.BitsPerSample = uint8((bitsPerSampMask&bits)>>36) + 1
@@ -771,126 +746,119 @@ func (vcb *VorbisCommentBlock) Parse(block []byte) error {
 	vcb.TotalComments = binary.LittleEndian.Uint32(buf.Next(VorbisCommentUserCommentLen / 8))
 
 	for tc := vcb.TotalComments; tc > 0; tc-- {
-		len := binary.LittleEndian.Uint32(buf.Next(VorbisCommentCommentLengthLen / 8))
-		comment := string(buf.Next(int(len)))
+		l := binary.LittleEndian.Uint32(buf.Next(VorbisCommentCommentLengthLen / 8))
+		comment := string(buf.Next(int(l)))
 		vcb.Comments = append(vcb.Comments, comment)
 	}
 	return nil
 }
 
-// ReadFLACMetatada reads the metadata from a FLAC file and populates a Metadata struct.
-func (meta *Metadata) Read(f io.Reader) error {
+// Read reads the metadata from a FLAC file and populates a Metadata struct.
+func (m *Metadata) Read(f io.Reader) error {
 	// First 4 bytes of the file are the FLAC stream marker: 0x66, 0x4C, 0x61, 0x43
 	// It's also the length of all metadata block headers so we'll resue it below.
 	h := make([]byte, MetadataBlockHeaderLen/8)
 
 	n, err := io.ReadFull(f, h)
 	if err != nil || n != int(MetadataBlockHeaderLen/8) {
-		return fmt.Errorf("FATAL: error reading FLAC signature: %s", err)
+		return fmt.Errorf("error reading FLAC signature: %v", err)
 	}
 
 	if string(h) != FlacSignature {
-		return fmt.Errorf("FATAL: '%s' is not a valid FLAC signature.", string(h))
+		return fmt.Errorf("%q is not a valid FLAC signature", string(h))
 	}
 
 	for totalMBH := 0; ; totalMBH++ {
 		// Next 4 bytes after the stream marker is the first metadata block header.
 		n, err := io.ReadFull(f, h)
 		if err != nil || n != int(MetadataBlockHeaderLen/8) {
-			return fmt.Errorf("FATAL: error reading metadata block header: %s", err)
+			return fmt.Errorf("error reading metadata block header: %v", err)
 		}
 
 		mbh := new(MetadataBlockHeader)
-		err = mbh.Parse(h)
-		if err != nil {
+		if err := mbh.Parse(h); err != nil {
 			return err
 		}
 
 		block := make([]byte, mbh.Length)
 		n, err = io.ReadFull(f, block)
 		if err != nil || n != int(len(block)) {
-			return fmt.Errorf("FATAL: read %d of %d bytes for %s metadata block: %s", n, mbh.Length, mbh.Type, err)
+			return fmt.Errorf("failed to read %d of %d bytes for %s metadata block: %v", n, mbh.Length, mbh.Type, err)
 		}
 
 		switch mbh.Type {
 		case MetadataStreaminfo:
-			if meta.Streaminfo.IsPopulated {
-				return fmt.Errorf("FATAL: Two %s blocks encountered.", mbh.Type)
+			if m.Streaminfo.IsPopulated {
+				return fmt.Errorf("two %s blocks encountered", mbh.Type)
 			}
 
 			sib := new(StreaminfoBlock)
-			err := sib.Parse(block)
-			if err != nil {
+			if err := sib.Parse(block); err != nil {
 				return err
 			}
 
-			meta.Streaminfo = Streaminfo{mbh, sib, true}
+			m.Streaminfo = Streaminfo{mbh, sib, true}
 
 		case MetadataVorbisComment:
-			if meta.VorbisComment.IsPopulated {
-				return fmt.Errorf("FATAL: Two %s blocks encountered.", mbh.Type)
+			if m.VorbisComment.IsPopulated {
+				return fmt.Errorf("two %s blocks encountered", mbh.Type)
 			}
 
 			vcb := new(VorbisCommentBlock)
-			err := vcb.Parse(block)
-			if err != nil {
+			if err := vcb.Parse(block); err != nil {
 				return err
 			}
 
-			meta.VorbisComment = VorbisComment{mbh, vcb, true}
+			m.VorbisComment = VorbisComment{mbh, vcb, true}
 
 		case MetadataPicture:
 			fpb := new(PictureBlock)
-			err := fpb.Parse(block)
-			if err != nil {
+			if err := fpb.Parse(block); err != nil {
 				return err
 			}
-			meta.Pictures = append(meta.Pictures, &Picture{mbh, fpb, true})
+			m.Pictures = append(m.Pictures, &Picture{mbh, fpb, true})
 
 		case MetadataPadding:
-			if meta.Padding.IsPopulated {
-				return fmt.Errorf("FATAL: Two %s blocks encountered.", mbh.Type)
+			if m.Padding.IsPopulated {
+				return fmt.Errorf("two %s blocks encountered", mbh.Type)
 			}
-			meta.Padding = Padding{mbh, nil, true}
+			m.Padding = Padding{mbh, nil, true}
 
 		case MetadataApplication:
-			if meta.Application.IsPopulated {
-				return fmt.Errorf("FATAL: Two %s blocks encountered.", mbh.Type)
+			if m.Application.IsPopulated {
+				return fmt.Errorf("two %s blocks encountered", mbh.Type)
 			}
 
-			fab := new(ApplicationBlock)
-			err := fab.Parse(block)
-			if err != nil {
+			ab := new(ApplicationBlock)
+			if err := ab.Parse(block); err != nil {
 				return err
 			}
-			meta.Application = Application{mbh, fab, true}
+			m.Application = Application{mbh, ab, true}
 
 		case MetadataSeektable:
-			if meta.Seektable.IsPopulated {
-				return fmt.Errorf("FATAL: Two %s blocks encountered.", mbh.Type)
+			if m.Seektable.IsPopulated {
+				return fmt.Errorf("two %s blocks encountered", mbh.Type)
 			}
 			if len(block)%(SeekpointBlockLen/8) != 0 {
-				return fmt.Errorf("FATAL: %s block length is not a multiple of %d.", mbh.Type, (SeekpointBlockLen / 8))
+				return fmt.Errorf("%s block length is not a multiple of %d", mbh.Type, (SeekpointBlockLen / 8))
 			}
 
-			err := meta.Seektable.Parse(block)
-			if err != nil {
+			if err := m.Seektable.Parse(block); err != nil {
 				return err
 			}
-			meta.Seektable.Header = mbh
-			meta.Seektable.IsPopulated = true
+			m.Seektable.Header = mbh
+			m.Seektable.IsPopulated = true
 
 		case MetadataCuesheet:
-			if meta.Cuesheet.IsPopulated {
-				return fmt.Errorf("FATAL: Two %s blocks encountered.", mbh.Type)
+			if m.Cuesheet.IsPopulated {
+				return fmt.Errorf("two %s blocks encountered", mbh.Type)
 			}
 
-			csb := new(CuesheetBlock)
-			err := csb.Parse(block)
-			if err != nil {
+			cb := new(CuesheetBlock)
+			if err := cb.Parse(block); err != nil {
 				return err
 			}
-			meta.Cuesheet = Cuesheet{mbh, csb, true}
+			m.Cuesheet = Cuesheet{mbh, cb, true}
 
 		default:
 			continue

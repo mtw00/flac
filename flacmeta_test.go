@@ -1,39 +1,31 @@
 package flac
 
 import (
-	"fmt"
-	. "launchpad.net/gocheck"
+	"encoding/hex"
 	"os"
+	"reflect"
 	"testing"
 )
 
-func Test(t *testing.T) { TestingT(t) }
-
-type S struct{}
-
-var _ = Suite(&S{})
-
-func (s *S) TestParseMetadataBlockHeader1(c *C) {
+func TestParseMetadata44k16Mono(t *testing.T) {
 	f, err := os.Open("testdata/44100-16-mono.flac")
 	if err != nil {
-		fmt.Println("FATAL:", err)
-		os.Exit(-1)
+		t.Fatal(err)
 	}
 	defer f.Close()
 
-	metadata := new(Metadata)
-	err = metadata.Read(f)
-	if err != nil {
-		fmt.Printf("Error reading test file: %s\n", err)
-		os.Exit(-1)
+	got := new(Metadata)
+	if err := got.Read(f); err != nil {
+		t.Fatal(err)
 	}
 
-	streaminfo := Streaminfo{
+	wantSi := Streaminfo{
 		Header: &MetadataBlockHeader{
 			Type:       MetadataStreaminfo,
 			Length:     34,
 			Last:       false,
-			SeekPoints: 0},
+			SeekPoints: 0,
+		},
 		Data: &StreaminfoBlock{
 			MinBlockSize:  4096,
 			MaxBlockSize:  4096,
@@ -43,82 +35,81 @@ func (s *S) TestParseMetadataBlockHeader1(c *C) {
 			Channels:      1,
 			BitsPerSample: 16,
 			TotalSamples:  1014300,
-			MD5Signature:  "e5ccc967ced6c111530e5c79e33c969e"},
-		IsPopulated: true}
-	c.Check(metadata.Streaminfo.Header, DeepEquals, streaminfo.Header)
-	c.Check(metadata.Streaminfo.Data, DeepEquals, streaminfo.Data)
-	c.Check(metadata.Streaminfo.IsPopulated, DeepEquals, streaminfo.IsPopulated)
+			MD5Signature:  "e5ccc967ced6c111530e5c79e33c969e",
+		},
+		IsPopulated: true,
+	}
+	if !reflect.DeepEqual(got.Streaminfo, wantSi) {
+		t.Errorf("Streaminfo headers differ:\ngot:  %+v\nwant: %+v", got, wantSi)
+	}
 
-	comment := VorbisComment{
+	wantVc := VorbisComment{
 		Header: &MetadataBlockHeader{
 			Type:       MetadataVorbisComment,
 			Length:     57,
 			Last:       false,
-			SeekPoints: 0},
+			SeekPoints: 0,
+		},
 		Data: &VorbisCommentBlock{
 			Vendor:        "reference libFLAC 1.2.1 20070917",
 			TotalComments: 1,
-			Comments: []string{
-				"ARTIST=GoGoGo"}},
-		IsPopulated: true}
-	c.Check(metadata.VorbisComment.Header, DeepEquals, comment.Header)
-	c.Check(metadata.VorbisComment.Data, DeepEquals, comment.Data)
-	c.Check(metadata.VorbisComment.IsPopulated, DeepEquals, comment.IsPopulated)
+			Comments:      []string{"ARTIST=GoGoGo"},
+		},
+		IsPopulated: true,
+	}
+	if !reflect.DeepEqual(got.VorbisComment, wantVc) {
+		t.Errorf("VorbisComment headers differ:\ngot:  %+v\nwant: %+v", got.VorbisComment, wantVc)
+	}
 
-	pad := Padding{
+	wantPad := Padding{
 		Header: &MetadataBlockHeader{
 			Type:       MetadataPadding,
 			Length:     8175,
 			Last:       true,
 			SeekPoints: 0},
 		Data:        nil,
-		IsPopulated: true}
-	c.Check(pad, DeepEquals, metadata.Padding)
-	c.Check(metadata.Padding, DeepEquals, pad)
+		IsPopulated: true,
+	}
+	if !reflect.DeepEqual(got.Padding, wantPad) {
+		t.Errorf("Padding differs:\ngot:  %+v\nwant: %+v", got.Padding, wantPad)
+	}
 
-	stb := Seektable{
+	wantSt := Seektable{
 		Header: &MetadataBlockHeader{
 			Type:       MetadataSeektable,
 			Length:     54,
 			Last:       false,
-			SeekPoints: 3},
+			SeekPoints: 3,
+		},
 		Data: []*SeekpointBlock{
-			&SeekpointBlock{
-				SampleNumber: 0,
-				Offset:       0,
-				FrameSamples: 4096},
-			&SeekpointBlock{
-				SampleNumber: 438272,
-				Offset:       1177,
-				FrameSamples: 4096},
-			&SeekpointBlock{
-				SampleNumber: 880640,
-				Offset:       2452,
-				FrameSamples: 4096}},
-		IsPopulated: true}
-	c.Check(metadata.Seektable.Header, DeepEquals, stb.Header)
-	c.Check(metadata.Seektable.Data, DeepEquals, stb.Data)
-	c.Check(metadata.Seektable.IsPopulated, DeepEquals, stb.IsPopulated)
+			{SampleNumber: 0, Offset: 0, FrameSamples: 4096},
+			{SampleNumber: 438272, Offset: 1177, FrameSamples: 4096},
+			{SampleNumber: 880640, Offset: 2452, FrameSamples: 4096},
+		},
+		IsPopulated: true,
+	}
+	if !reflect.DeepEqual(got.Seektable, wantSt) {
+		t.Errorf("Seektable differs:\ngot:  %+v\nwant: %+v", got.Seektable, wantSt)
+	}
 }
 
-func (s *S) TestParseMetadataBlockHeader2(c *C) {
-	f, err := os.Open("testdata/mutagen/silence-44-s.flac")
+func TestParseMetadata44k16Stereo(t *testing.T) {
+	f, err := os.Open("testdata/silence-44-s.flac")
 	if err != nil {
-		fmt.Println("FATAL:", err)
-		os.Exit(-1)
+		t.Fatal(err)
 	}
 	defer f.Close()
 
-	metadata := new(Metadata)
-	metadata.Read(f)
+	got := new(Metadata)
+	got.Read(f)
 
-	// Test Streaminfo Block
-	streaminfo := Streaminfo{
+	wantSi := Streaminfo{
 		Header: &MetadataBlockHeader{
 			Type:       MetadataStreaminfo,
 			Length:     34,
 			Last:       false,
-			SeekPoints: 0},
+			SeekPoints: 0,
+		},
 		Data: &StreaminfoBlock{
 			MinBlockSize:  4608,
 			MaxBlockSize:  4608,
@@ -128,19 +119,21 @@ func (s *S) TestParseMetadataBlockHeader2(c *C) {
 			Channels:      2,
 			BitsPerSample: 16,
 			TotalSamples:  162496,
-			MD5Signature:  "6291dbd8dcb7dc480132e4c4ba154a17"},
-		IsPopulated: true}
-	c.Check(metadata.Streaminfo.Header, DeepEquals, streaminfo.Header)
-	c.Check(metadata.Streaminfo.Data, DeepEquals, streaminfo.Data)
-	c.Check(metadata.Streaminfo.IsPopulated, DeepEquals, streaminfo.IsPopulated)
+			MD5Signature:  "6291dbd8dcb7dc480132e4c4ba154a17",
+		},
+		IsPopulated: true,
+	}
+	if !reflect.DeepEqual(got.Streaminfo, wantSi) {
+		t.Errorf("Streaminfo differs:\ngot:  %+v\nwant: %+v", got.Streaminfo, wantSi)
+	}
 
-	// Test Vorbis Comments
-	comment := VorbisComment{
+	wantVc := VorbisComment{
 		Header: &MetadataBlockHeader{
 			Type:       MetadataVorbisComment,
 			Length:     169,
 			Last:       false,
-			SeekPoints: 0},
+			SeekPoints: 0,
+		},
 		Data: &VorbisCommentBlock{
 			Vendor:        "reference libFLAC 1.1.0 20030126",
 			TotalComments: 7,
@@ -151,174 +144,139 @@ func (s *S) TestParseMetadataBlockHeader2(c *C) {
 				"genre=Silence",
 				"tracknumber=02/10",
 				"date=2004",
-				"title=Silence"}},
-		IsPopulated: true}
-	c.Check(metadata.VorbisComment.Header, DeepEquals, comment.Header)
-	c.Check(metadata.VorbisComment.Data, DeepEquals, comment.Data)
-	c.Check(metadata.VorbisComment.IsPopulated, DeepEquals, comment.IsPopulated)
+				"title=Silence",
+			},
+		},
+		IsPopulated: true,
+	}
+	if !reflect.DeepEqual(got.VorbisComment, wantVc) {
+		t.Errorf("VorbisComment differs:\ngot:  %+v\nwant: %+v", got.VorbisComment, wantVc)
+	}
 
-	// Test Cuesheet Block
-	isrc := ""
-	isrc = "1234567890123"
+	isrc := "1234567890123"
 	for i := len(isrc); i < 128; i++ {
 		isrc += "\x00"
 	}
 
-	cti0 := make([]*CuesheetTrackIndexBlock, 1)
-	cti0[0] = &CuesheetTrackIndexBlock{
-		SampleOffset: 0,
-		IndexPoint:   1,
-	}
-
-	cti1 := make([]*CuesheetTrackIndexBlock, 2)
-	cti1[0] = &CuesheetTrackIndexBlock{
-		SampleOffset: 0,
-		IndexPoint:   1,
-	}
-	cti1[1] = &CuesheetTrackIndexBlock{
-		SampleOffset: 588,
-		IndexPoint:   2,
-	}
-
-	cti2 := make([]*CuesheetTrackIndexBlock, 1)
-	cti2[0] = &CuesheetTrackIndexBlock{
-		SampleOffset: 0,
-		IndexPoint:   1,
-	}
-
 	emptyIRSC := "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
 
-	ctb := make([]*CuesheetTrackBlock, 4)
-	ctb[0] = &CuesheetTrackBlock{
-		TrackOffset:          0,
-		TrackNumber:          uint8(1),
-		TrackISRC:            "123456789012",
-		TrackType:            0,
-		PreEmphasis:          false,
-		IndexPoints:          uint8(1),
-		CuesheetTrackIndexes: cti0}
-	ctb[1] = &CuesheetTrackBlock{
-		TrackOffset:          44100,
-		TrackNumber:          2,
-		TrackISRC:            emptyIRSC,
-		TrackType:            1,
-		PreEmphasis:          true,
-		IndexPoints:          2,
-		CuesheetTrackIndexes: cti1}
-	ctb[2] = &CuesheetTrackBlock{
-		TrackOffset:          88200,
-		TrackNumber:          3,
-		TrackISRC:            emptyIRSC,
-		TrackType:            0,
-		PreEmphasis:          false,
-		IndexPoints:          1,
-		CuesheetTrackIndexes: cti2}
-	ctb[3] = &CuesheetTrackBlock{
-		TrackOffset:          162496,
-		TrackNumber:          170,
-		TrackISRC:            emptyIRSC,
-		TrackType:            0,
-		PreEmphasis:          false,
-		IndexPoints:          0,
-		CuesheetTrackIndexes: nil}
-
-	cb := Cuesheet{
+	wantCs := Cuesheet{
 		Header: &MetadataBlockHeader{
 			Type:       MetadataCuesheet,
 			Length:     588,
 			Last:       false,
-			SeekPoints: 0},
+			SeekPoints: 0,
+		},
 		Data: &CuesheetBlock{
 			MediaCatalogNumber: isrc,
 			LeadinSamples:      0x15888,
 			IsCompactDisc:      true,
 			TotalTracks:        0x4,
-			CuesheetTracks:     ctb},
-		IsPopulated: true}
-	c.Check(metadata.Cuesheet.Header, DeepEquals, cb.Header)
-	c.Check(metadata.Cuesheet.IsPopulated, DeepEquals, cb.IsPopulated)
-	for x := range ctb {
-		c.Check(metadata.Cuesheet.Data.CuesheetTracks[x], DeepEquals, ctb[x])
-		for y := range metadata.Cuesheet.Data.CuesheetTracks[x].CuesheetTrackIndexes {
-			c.Check(metadata.Cuesheet.Data.CuesheetTracks[x].CuesheetTrackIndexes[y], DeepEquals, ctb[x].CuesheetTrackIndexes[y])
-		}
+			Tracks: []*CuesheetTrack{{
+				Offset:      0,
+				Number:      uint8(1),
+				ISRC:        "123456789012",
+				Type:        0,
+				PreEmphasis: false,
+				IndexPoints: uint8(1),
+				Indexes: []*TrackIndex{
+					{SampleOffset: 0, IndexPoint: 1},
+				},
+			}, {
+				Offset:      44100,
+				Number:      2,
+				ISRC:        emptyIRSC,
+				Type:        1,
+				PreEmphasis: true,
+				IndexPoints: 2,
+				Indexes: []*TrackIndex{
+					{SampleOffset: 0, IndexPoint: 1},
+					{SampleOffset: 588, IndexPoint: 2},
+				},
+			}, {
+				Offset:      88200,
+				Number:      3,
+				ISRC:        emptyIRSC,
+				Type:        0,
+				PreEmphasis: false,
+				IndexPoints: 1,
+				Indexes: []*TrackIndex{
+					{SampleOffset: 0, IndexPoint: 1},
+				},
+			}, {
+				Offset:      162496,
+				Number:      170,
+				ISRC:        emptyIRSC,
+				Type:        0,
+				PreEmphasis: false,
+				IndexPoints: 0,
+				Indexes:     nil,
+			}},
+		},
+		IsPopulated: true,
+	}
+	if !reflect.DeepEqual(got.Cuesheet, wantCs) {
+		t.Errorf("Cuesheet differs:\ngot:  %+v\nwant: %+v", got.Cuesheet, wantCs)
 	}
 
-	// Test Seek Table
-	stb := Seektable{
+	wantSt := Seektable{
 		Header: &MetadataBlockHeader{
 			Type:       MetadataSeektable,
 			Length:     108,
 			Last:       false,
 			SeekPoints: 6},
 		Data: []*SeekpointBlock{
-			&SeekpointBlock{
-				SampleNumber: 0,
-				Offset:       0,
-				FrameSamples: 4608},
-			&SeekpointBlock{
-				SampleNumber: 41472,
-				Offset:       11852,
-				FrameSamples: 4608},
-			&SeekpointBlock{
-				SampleNumber: 50688,
-				Offset:       14484,
-				FrameSamples: 4608},
-			&SeekpointBlock{
-				SampleNumber: 87552,
-				Offset:       25022,
-				FrameSamples: 4608},
-			&SeekpointBlock{
-				SampleNumber: 105984,
-				Offset:       30284,
-				FrameSamples: 4608},
-			&SeekpointBlock{
-				SampleNumber: 18446744073709551615,
-				Offset:       0,
-				FrameSamples: 0}},
-		IsPopulated: true}
-	c.Check(metadata.Seektable.Header, DeepEquals, stb.Header)
-	c.Check(metadata.Seektable.Data, DeepEquals, stb.Data)
-	c.Check(metadata.Seektable.IsPopulated, DeepEquals, stb.IsPopulated)
+			{SampleNumber: 0, Offset: 0, FrameSamples: 4608},
+			{SampleNumber: 41472, Offset: 11852, FrameSamples: 4608},
+			{SampleNumber: 50688, Offset: 14484, FrameSamples: 4608},
+			{SampleNumber: 87552, Offset: 25022, FrameSamples: 4608},
+			{SampleNumber: 105984, Offset: 30284, FrameSamples: 4608},
+			{SampleNumber: 18446744073709551615, Offset: 0, FrameSamples: 0},
+		},
+		IsPopulated: true,
+	}
+	if !reflect.DeepEqual(got.Seektable, wantSt) {
+		t.Errorf("Cuesheet differs:\ngot:  %+v\nwant: %+v", got.Seektable, wantSt)
+	}
 
-	// Test Picture
-	pb := Picture{
+	blob, err := hex.DecodeString(`89504e470d0a1a0a0000000d4948445200000001000000010802000000907753de000000097048597300000b1300000b1301009a9c180000000774494d4507d60b1c0a360608443d320000001d74455874436f6d6d656e7400437265617465642077697468205468652047494d50ef64256e0000000c4944415408d763f8ffff3f0005fe02fedccc59e70000000049454e44ae426082`)
+	if err != nil {
+		t.Fatalf("failed to decode hex representation of picture: %v", err)
+	}
+	wantPic := &Picture{
 		Header: &MetadataBlockHeader{
 			Type:       MetadataPicture,
 			Length:     199,
 			Last:       false,
-			SeekPoints: 0},
+			SeekPoints: 0,
+		},
 		Data: &PictureBlock{
-			PictureType:        "Cover (front)",
-			MimeType:           "image/png",
-			PictureDescription: "A pixel.",
-			Width:              1,
-			Height:             1,
-			ColorDepth:         24,
-			NumColors:          0,
-			Length:             150},
-		IsPopulated: true}
-	c.Check(metadata.Pictures[0].Header, DeepEquals, pb.Header)
-	c.Check(metadata.Pictures[0].Data.PictureType, DeepEquals, pb.Data.PictureType)
-	c.Check(metadata.Pictures[0].Data.MimeType, DeepEquals, pb.Data.MimeType)
-	c.Check(metadata.Pictures[0].Data.PictureDescription, DeepEquals, pb.Data.PictureDescription)
-	c.Check(metadata.Pictures[0].Data.Width, DeepEquals, pb.Data.Width)
-	c.Check(metadata.Pictures[0].Data.Height, DeepEquals, pb.Data.Height)
-	c.Check(metadata.Pictures[0].Data.ColorDepth, DeepEquals, pb.Data.ColorDepth)
-	c.Check(metadata.Pictures[0].Data.NumColors, DeepEquals, pb.Data.NumColors)
-	c.Check(metadata.Pictures[0].Data.Length, DeepEquals, pb.Data.Length)
-	c.Check(metadata.Pictures[0].IsPopulated, DeepEquals, pb.IsPopulated)
+			PictureType: "Cover (front)",
+			MimeType:    "image/png",
+			Description: "A pixel.",
+			Width:       1,
+			Height:      1,
+			ColorDepth:  24,
+			NumColors:   0,
+			Length:      150,
+			PictureBlob: blob,
+		},
+		IsPopulated: true,
+	}
+	if !reflect.DeepEqual(got.Pictures[0], wantPic) {
+		t.Errorf("Pictures differs:\ngot:  %+v\nwant: %+v", got.Pictures[0], wantPic)
+	}
 
-	// Test Padding
-	pad := Padding{
+	wantPad := Padding{
 		Header: &MetadataBlockHeader{
 			Type:       MetadataPadding,
 			Length:     3060,
 			Last:       true,
-			SeekPoints: 0},
-		Data:        nil,
-		IsPopulated: true}
-	c.Check(metadata.Padding.Header, DeepEquals, pad.Header)
-	c.Check(metadata.Padding.Data, DeepEquals, pad.Data)
-	c.Check(metadata.Padding.IsPopulated, DeepEquals, pad.IsPopulated)
+			SeekPoints: 0,
+		},
+		IsPopulated: true,
+	}
+	if !reflect.DeepEqual(got.Padding, wantPad) {
+		t.Errorf("Padding differs:\ngot:  %+v\nwant: %+v", got.Padding, wantPad)
+	}
 }
