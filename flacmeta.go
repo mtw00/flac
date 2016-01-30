@@ -233,10 +233,10 @@ type TrackIndex struct {
 // number of seek points if the block is a seektable, and if it is the last
 // metadata block before the start of the audio stream.
 type MetadataBlockHeader struct {
-	Type       MetadataBlockType
-	Length     uint32
-	Last       bool
-	SeekPoints uint16
+	Type   MetadataBlockType
+	Length uint32
+	Last   bool
+	// SeekPoints uint16
 }
 
 // Picture contains information and binary data about pictures that are embedded in the FLAC file. Muitiple Picture blocks are allow per file.
@@ -345,8 +345,8 @@ type Metadata struct {
 	TotalBlocks uint8
 }
 
-// Parse parses the bits of an Application block.
-func (b *ApplicationBlock) Parse(block []byte) error {
+// MarshalApplicationBlock marshals b into an ApplicationBlock.
+func MarshalApplicationBlock(b []byte) (*ApplicationBlock, error) {
 	// http://flac.sourceforge.net/format.html#metadata_block_application
 	// Field Len  | Data
 	// -----------+--------------------------------------------------------
@@ -354,18 +354,19 @@ func (b *ApplicationBlock) Parse(block []byte) error {
 	//            |
 	// n          | Application data (n must be a multiple of 8)
 
-	buf := bytes.NewBuffer(block)
+	buf := bytes.NewBuffer(b)
+	blk := &ApplicationBlock{}
 
-	b.Id = binary.BigEndian.Uint32(buf.Next(ApplicationIdLen))
+	blk.Id = binary.BigEndian.Uint32(buf.Next(ApplicationIdLen))
 	if buf.Len()%8 != 0 {
-		return fmt.Errorf("malformed ApplictionBlock; field length %d not a multiple of 8", buf.Len())
+		return nil, fmt.Errorf("malformed ApplictionBlock; field length %d not a multiple of 8", buf.Len())
 	}
-	b.Data = buf.Bytes()
-	return nil
+	blk.Data = buf.Bytes()
+	return blk, nil
 }
 
-// Parse parses the bits of a Cue Sheet block.
-func (b *CuesheetBlock) Parse(block []byte) error {
+// MarshalCuesheetBlock marshals b into a CuesheetBlock.
+func MarshalCuesheetBlock(b []byte) (*CuesheetBlock, error) {
 	// http://flac.sourceforge.net/format.html#metadata_block_cuesheet
 	// Field Len  | Data
 	// -----------+--------------------------------------------------------
@@ -396,36 +397,39 @@ func (b *CuesheetBlock) Parse(block []byte) error {
 	//            | tracks and one lead-out track).
 
 	const trackType = 0x01
-	buf := bytes.NewBuffer(block)
+	buf := bytes.NewBuffer(b)
+	blk := &CuesheetBlock{}
 
-	b.MediaCatalogNumber = string(buf.Next(CuesheetMediaCatalogNumberLen / 8))
-	b.LeadinSamples = binary.BigEndian.Uint64(buf.Next(CuesheetLeadinSamplesLen / 8))
+	blk.MediaCatalogNumber = string(buf.Next(CuesheetMediaCatalogNumberLen / 8))
+	blk.LeadinSamples = binary.BigEndian.Uint64(buf.Next(CuesheetLeadinSamplesLen / 8))
 
 	res := buf.Next(CuesheetReservedLen / 8)
 
-	b.IsCompactDisc = res[0]>>7&trackType == 1
-	b.TotalTracks = uint8(buf.Next(CuesheetTotalTracksLen / 8)[0])
-
-	if b.TotalTracks < 1 {
-		return fmt.Errorf("TotalTracks value must be greater than >= 1")
+	blk.IsCompactDisc = res[0]>>7&trackType == 1
+	blk.TotalTracks = uint8(buf.Next(CuesheetTotalTracksLen / 8)[0])
+	if blk.TotalTracks == 0 {
+		return nil, fmt.Errorf("TotalTracks value must be greater than >= 1")
 	}
 
-	for i := 0; i < int(b.TotalTracks); i++ {
-		if err := b.ParseTrack(buf.Next(CuesheetTrackBlockLen / 8)); err != nil {
-			return fmt.Errorf("failed to parse track: %v", err)
+	for i := 0; i < int(blk.TotalTracks); i++ {
+		track, err := MarshalCuesheetTrack(buf.Next(CuesheetTrackBlockLen / 8))
+		if err != nil {
+			return nil, err
 		}
-		for j := 0; j < int(b.Tracks[i].IndexPoints); j++ {
-			if err := b.Tracks[i].Parse(buf.Next(CuesheetTrackIndexBlockLen / 8)); err != nil {
-				return fmt.Errorf("failed to parse track index: %v", err)
+		for j := 0; j < int(track.IndexPoints); j++ {
+			index, err := MarshalCuesheetTrackIndex(buf.Next(CuesheetTrackIndexBlockLen / 8))
+			if err != nil {
+				return nil, err
 			}
+			track.Indexes = append(track.Indexes, index)
 		}
+		blk.Tracks = append(blk.Tracks, track)
 	}
-
-	return nil
+	return blk, nil
 }
 
-// Parse parses the bits of a Cue Sheet Track block.
-func (b *CuesheetBlock) ParseTrack(block []byte) error {
+// MarshalCuesheetTrack marshals b into a CuesheetTrack.
+func MarshalCuesheetTrack(b []byte) (*CuesheetTrack, error) {
 	// http://flac.sourceforge.net/format.html#cuesheet_track
 	// Field Len  | Data
 	// -----------+--------------------------------------------------------
@@ -461,31 +465,29 @@ func (b *CuesheetBlock) ParseTrack(block []byte) error {
 	//            | [2] http://en.wikipedia.org/wiki/International_Standard_Recording_Code
 	//            | [3] http://www.chipchapin.com/CDMedia/cdda9.php3
 
-	// TODO Implement error checking here.
 	const trackType = 0x01
-	buf := bytes.NewBuffer(block)
+	buf := bytes.NewBuffer(b)
 
-	t := new(CuesheetTrack)
+	blk := &CuesheetTrack{}
 
-	t.Offset = binary.BigEndian.Uint64(buf.Next(CuesheetTrackTrackOffsetLen / 8))
+	blk.Offset = binary.BigEndian.Uint64(buf.Next(CuesheetTrackTrackOffsetLen / 8))
 
-	if t.Number = uint8(buf.Next(CuesheetTrackTrackNumberLen / 8)[0]); t.Number == 0 {
-		return fmt.Errorf("cuesheet track value of 0 is not allowed")
+	if blk.Number = uint8(buf.Next(CuesheetTrackTrackNumberLen / 8)[0]); blk.Number == 0 {
+		return nil, fmt.Errorf("cuesheet track value of 0 is not allowed")
 	}
-	t.ISRC = string(buf.Next(CuesheetTrackTrackISRCLen / 8))
+	blk.ISRC = string(buf.Next(CuesheetTrackTrackISRCLen / 8))
 
 	// The first byte of the reserved field contain the flags for track type and preemphasis.
 	res := buf.Next(CuesheetTrackReservedLen / 8)[0]
-	t.Type = uint8(res >> 7 & trackType)
-	t.PreEmphasis = res>>6&trackType == 1
-	t.IndexPoints = uint8(buf.Next(CuesheetTrackIndexPointsLen / 8)[0])
-	b.Tracks = append(b.Tracks, t)
+	blk.Type = uint8(res >> 7 & trackType)
+	blk.PreEmphasis = res>>6&trackType == 1
+	blk.IndexPoints = uint8(buf.Next(CuesheetTrackIndexPointsLen / 8)[0])
 
-	return nil
+	return blk, nil
 }
 
-// Parse parses the bits of a Cue Sheet Track Index block.
-func (b *CuesheetTrack) Parse(block []byte) error {
+// MarshalCuesheetTrackIndex marshals b into a CuesheetTrackIndex.
+func MarshalCuesheetTrackIndex(b []byte) (*TrackIndex, error) {
 	// http://flac.sourceforge.net/format.html#cuesheet_track_index
 	// Field Len  | Data
 	// -----------+--------------------------------------------------------
@@ -502,23 +504,19 @@ func (b *CuesheetTrack) Parse(block []byte) error {
 	//            |
 	// 3 * 8      | Reserved. All bits must be set to zero.
 
-	buf := bytes.NewBuffer(block)
+	buf := bytes.NewBuffer(b)
+	blk := &TrackIndex{}
 
-	ti := new(TrackIndex)
-
-	ti.SampleOffset = binary.BigEndian.Uint64(buf.Next(CuesheetTrackIndexSampleOffsetLen / 8))
-	if ti.SampleOffset%588 != 0 {
-		return fmt.Errorf("invalid value %d for Cuesheet Track Index Sample Offset: must be divisible by 588.", ti.SampleOffset)
+	blk.SampleOffset = binary.BigEndian.Uint64(buf.Next(CuesheetTrackIndexSampleOffsetLen / 8))
+	if blk.SampleOffset%588 != 0 {
+		return nil, fmt.Errorf("invalid value %d for Cuesheet Track Index Sample Offset: must be divisible by 588.", blk.SampleOffset)
 	}
-
-	ti.IndexPoint = uint8(buf.Next(CuesheetTrackIndexPointLen / 8)[0])
-	b.Indexes = append(b.Indexes, ti)
-
-	return nil
+	blk.IndexPoint = uint8(buf.Next(CuesheetTrackIndexPointLen / 8)[0])
+	return blk, nil
 }
 
-// Parse parses the bits of a Metadata Block Header.
-func (mbh *MetadataBlockHeader) Parse(block []byte) error {
+// MarshalMetadataBlockHeader marshals b into a MetadataBlockHeader.
+func MarshalMetadataBlockHeader(b []byte) (*MetadataBlockHeader, error) {
 	// http://flac.sourceforge.net/format.html#metadata_block_header
 	// Field Len  | Data
 	// -----------+--------------------------------------------------------
@@ -530,36 +528,30 @@ func (mbh *MetadataBlockHeader) Parse(block []byte) error {
 	// 24         | Length (in bytes) of metadata to follow (does not include
 	//            | the size of the METADATA_BLOCK_HEADER)
 
+	hdr := &MetadataBlockHeader{}
+
 	const (
 		lastBlock = 0x80000000
 		blockType = 0x7F000000
 		blockLen  = 0x00FFFFFF
 	)
 
-	bits := binary.BigEndian.Uint32(block)
+	bits := binary.BigEndian.Uint32(b)
 
-	if (lastBlock&bits)>>31 == 1 {
-		mbh.Last = true
-	}
+	hdr.Last = (lastBlock&bits)>>31 == 1
+	hdr.Length = blockLen & bits
 
 	bt := blockType & bits >> 24
-	mbh.Type = HeaderType(bt)
-	if mbh.Type == MetadataInvalid {
-		return fmt.Errorf("invalid or unknown block type: %d", bt)
+	hdr.Type = HeaderType(bt)
+	if hdr.Type == MetadataInvalid {
+		return nil, fmt.Errorf("invalid or unknown block type: %d", bt)
 	}
-	mbh.Length = blockLen & bits
 
-	if mbh.Type == MetadataSeektable {
-		if mbh.Length%(SeekpointBlockLen/8) != 0 {
-			return fmt.Errorf("seektable block length %d is not a multiple of %d.", mbh.Length, SeekpointBlockLen/8)
-		}
-		mbh.SeekPoints = uint16(mbh.Length / (SeekpointBlockLen / 8))
-	}
-	return nil
+	return hdr, nil
 }
 
-// Parse parses the bits of a picture block.
-func (pb *PictureBlock) Parse(block []byte) error {
+// MarshalPictureBlock marshals b into a PictureBlock.
+func MarshalPictureBlock(b []byte) *PictureBlock {
 	// http://flac.sourceforge.net/format.html#metadata_block_picture
 	// Field Len  | Data
 	// -----------+--------------------------------------------------------
@@ -588,30 +580,36 @@ func (pb *PictureBlock) Parse(block []byte) error {
 	//            |
 	// n * 8      | The binary picture data.
 
-	// TODO: Add error checking here.
-	buf := bytes.NewBuffer(block)
+	buf := bytes.NewBuffer(b)
+	blk := &PictureBlock{}
 
-	pb.PictureType = PictureType(binary.BigEndian.Uint32(buf.Next(PictureTypeLen / 8)))
+	blk.PictureType = PictureType(binary.BigEndian.Uint32(buf.Next(PictureTypeLen / 8)))
 
-	picLength := binary.BigEndian.Uint32(buf.Next(PictureMimeLengthLen / 8))
-	pb.MimeType = string(buf.Next(int(picLength)))
+	picLength := int(binary.BigEndian.Uint32(buf.Next(PictureMimeLengthLen / 8)))
+	blk.MimeType = string(buf.Next(picLength))
 
-	picLength = binary.BigEndian.Uint32(buf.Next(PictureDescriptionLengthLen / 8))
+	picLength = int(binary.BigEndian.Uint32(buf.Next(PictureDescriptionLengthLen / 8)))
 	if picLength > 0 {
-		pb.Description = string(buf.Next(int(picLength)))
+		blk.Description = string(buf.Next(picLength))
 	}
-	pb.Width = binary.BigEndian.Uint32(buf.Next(PictureWidthLen / 8))
-	pb.Height = binary.BigEndian.Uint32(buf.Next(PictureHeightLen / 8))
-	pb.ColorDepth = binary.BigEndian.Uint32(buf.Next(PictureColorDepthLen / 8))
-	pb.NumColors = binary.BigEndian.Uint32(buf.Next(PictureNumberOfColorsLen / 8))
-	pb.Length = binary.BigEndian.Uint32(buf.Next(PictureLengthLen / 8))
-	pb.PictureBlob = buf.Next(int(pb.Length))
+	blk.Width = binary.BigEndian.Uint32(buf.Next(PictureWidthLen / 8))
+	blk.Height = binary.BigEndian.Uint32(buf.Next(PictureHeightLen / 8))
+	blk.ColorDepth = binary.BigEndian.Uint32(buf.Next(PictureColorDepthLen / 8))
+	blk.NumColors = binary.BigEndian.Uint32(buf.Next(PictureNumberOfColorsLen / 8))
+	blk.Length = binary.BigEndian.Uint32(buf.Next(PictureLengthLen / 8))
 
-	return nil
+	blk.PictureBlob = buf.Next(int(blk.Length))
+
+	return blk
 }
 
-// Parse parses the bits of a FLAC seekpoint block.
-func (stb *Seektable) Parse(block []byte) error {
+// TotalPoints returns the number of seek points in this Seektable.
+func (s *Seektable) TotalPoints() int {
+	return len(s.Data)
+}
+
+// MarshalSeekpointBlock marshals the contents b into a SeektableBlock.
+func MarshalSeekpointBlock(b []byte) []*SeekpointBlock {
 	// http://flac.sourceforge.net/format.html#seekpoint
 	// Field Len  | Data
 	// -----------+--------------------------------------------------------
@@ -631,19 +629,19 @@ func (stb *Seektable) Parse(block []byte) error {
 	//  - The previous two notes imply that there may be any number of placeholder points,
 	//    but they must all occur at the end of the table.
 
-	// TODO: Add error checking here.
-	buf := bytes.NewBuffer(block)
+	buf := bytes.NewBuffer(b)
+	var ret []*SeekpointBlock
 
 	for i := 0; buf.Len() > 0; i++ {
-		spb := new(SeekpointBlock)
+		spb := &SeekpointBlock{}
 		binary.Read(buf, binary.BigEndian, spb)
-		stb.Data = append(stb.Data, spb)
+		ret = append(ret, spb)
 	}
-	return nil
+	return ret
 }
 
-// Parse parses the bits of a FLAC streaminfo block.
-func (sib *StreaminfoBlock) Parse(block []byte) error {
+// MarshalStreaminfoBlock marshals b into a StreaminfoBlock.
+func MarshalStreaminfoBlock(b []byte) (*StreaminfoBlock, error) {
 	// http://flac.sourceforge.net/format.html#metadata_block_streaminfo
 	// Field Len  | Data
 	// -----------+--------------------------------------------------------
@@ -683,48 +681,43 @@ func (sib *StreaminfoBlock) Parse(block []byte) error {
 	)
 	var bits uint64
 
-	buf := bytes.NewBuffer(block)
+	blk := &StreaminfoBlock{}
+	buf := bytes.NewBuffer(b)
 
-	mbs := buf.Next(StreaminfoMinBlockSizeLen / 8)
-	if len(mbs) != StreaminfoMinBlockSizeLen/8 {
-		return fmt.Errorf("error reading MinBlockSize field; expected %d byte(s), got %d", StreaminfoMinBlockSizeLen/8, len(mbs))
-	}
-	sib.MinBlockSize = binary.BigEndian.Uint16(mbs)
-	if sib.MinBlockSize > 0 && sib.MinBlockSize < 16 {
-		return fmt.Errorf("invalid MinBlockSize '%d'; must be >= 16", sib.MinBlockSize)
+	blk.MinBlockSize = binary.BigEndian.Uint16(buf.Next(StreaminfoMinBlockSizeLen / 8))
+	if blk.MinBlockSize > 0 && blk.MinBlockSize < 16 {
+		return nil, fmt.Errorf("invalid MinBlockSize '%d'; must be >= 16", blk.MinBlockSize)
 	}
 
 	bfsLen := (StreaminfoMaxBlockSizeLen + StreaminfoMinFrameSizeLen + StreaminfoMaxFrameSizeLen) / 8
-
 	bits = binary.BigEndian.Uint64(buf.Next(bfsLen))
-	sib.MaxBlockSize = uint16((minFSMask & bits) >> 48)
-	if sib.MaxBlockSize < 16 {
-		return fmt.Errorf("invalid MaxBlockSize '%d'; must be > 16", sib.MaxBlockSize)
+	blk.MaxBlockSize = uint16((minFSMask & bits) >> 48)
+	if blk.MaxBlockSize < 16 {
+		return nil, fmt.Errorf("invalid MaxBlockSize '%d'; must be > 16", blk.MaxBlockSize)
 	}
-	sib.MinFrameSize = uint32((minFSMask & bits) >> 24)
-	sib.MaxFrameSize = uint32(maxFSMask & bits)
+
+	blk.MinFrameSize = uint32((minFSMask & bits) >> 24)
+	blk.MaxFrameSize = uint32(maxFSMask & bits)
 
 	bits = binary.BigEndian.Uint64(buf.Next((StreaminfoSampleRateLen +
 		StreaminfoChannelCountLen +
 		StreaminfoBitsPerSampleLen +
 		StreaminfoTotalSamplesLen) / 8))
 
-	sib.SampleRate = uint32((sampRateMask & bits) >> 44)
-	if sib.SampleRate == 0 || sib.SampleRate >= 655350 {
-		return fmt.Errorf("invalid SampleRate '%d'; must be > 0 and < 655350", sib.SampleRate)
+	blk.SampleRate = uint32((sampRateMask & bits) >> 44)
+	if blk.SampleRate == 0 || blk.SampleRate >= 655350 {
+		return nil, fmt.Errorf("invalid SampleRate '%d'; must be > 0 and < 655350", blk.SampleRate)
 	}
-	sib.Channels = uint8((chMask&bits)>>41) + 1
-	sib.BitsPerSample = uint8((bitsPerSampMask&bits)>>36) + 1
-	sib.TotalSamples = bits & totSampMask
+	blk.Channels = uint8((chMask&bits)>>41) + 1
+	blk.BitsPerSample = uint8((bitsPerSampMask&bits)>>36) + 1
+	blk.TotalSamples = bits & totSampMask
+	blk.MD5Signature = fmt.Sprintf("%x", buf.Next(StreaminfoMD5Len/8))
 
-	sig := buf.Next(StreaminfoMD5Len / 8)
-	sib.MD5Signature = fmt.Sprintf("%x", sig)
-
-	return nil
+	return blk, nil
 }
 
-// Parse parses the bits in a Vorbis comment block.
-func (vcb *VorbisCommentBlock) Parse(block []byte) error {
+// MarshalVorbisCommentBlock marshals b into a VorbisCommentBlock.
+func MarshalVorbisCommentBlock(b []byte) *VorbisCommentBlock {
 	// http://www.xiph.org/vorbis/doc/v-comment.html
 	// The comment header is decoded as follows:
 	//
@@ -737,20 +730,19 @@ func (vcb *VorbisCommentBlock) Parse(block []byte) error {
 	//    }
 	// 7) done.
 
-	// TODO: Add error checking here
-	buf := bytes.NewBuffer(block)
+	blk := &VorbisCommentBlock{}
+	buf := bytes.NewBuffer(b)
 
-	len := binary.LittleEndian.Uint32(buf.Next(VorbisCommentVendorLen / 8))
-	vcb.Vendor = string(buf.Next(int(len)))
+	l := int(binary.LittleEndian.Uint32(buf.Next(VorbisCommentVendorLen / 8)))
+	blk.Vendor = string(buf.Next(l))
+	blk.TotalComments = binary.LittleEndian.Uint32(buf.Next(VorbisCommentUserCommentLen / 8))
 
-	vcb.TotalComments = binary.LittleEndian.Uint32(buf.Next(VorbisCommentUserCommentLen / 8))
-
-	for tc := vcb.TotalComments; tc > 0; tc-- {
-		l := binary.LittleEndian.Uint32(buf.Next(VorbisCommentCommentLengthLen / 8))
-		comment := string(buf.Next(int(l)))
-		vcb.Comments = append(vcb.Comments, comment)
+	for tc := blk.TotalComments; tc > 0; tc-- {
+		l := int(binary.LittleEndian.Uint32(buf.Next(VorbisCommentCommentLengthLen / 8)))
+		comment := string(buf.Next(l))
+		blk.Comments = append(blk.Comments, comment)
 	}
-	return nil
+	return blk
 }
 
 // Read reads the metadata from a FLAC file and populates a Metadata struct.
@@ -765,7 +757,7 @@ func (m *Metadata) Read(f io.Reader) error {
 	}
 
 	if string(h) != FlacSignature {
-		return fmt.Errorf("%q is not a valid FLAC signature", string(h))
+		return fmt.Errorf("%q is not a valid FLAC signature", h)
 	}
 
 	for totalMBH := 0; ; totalMBH++ {
@@ -775,14 +767,14 @@ func (m *Metadata) Read(f io.Reader) error {
 			return fmt.Errorf("error reading metadata block header: %v", err)
 		}
 
-		mbh := new(MetadataBlockHeader)
-		if err := mbh.Parse(h); err != nil {
-			return err
+		mbh, err := MarshalMetadataBlockHeader(h)
+		if err != nil {
+			return fmt.Errorf("failed to marshalMetadataBlockHeader: %v", err)
 		}
 
 		block := make([]byte, mbh.Length)
 		n, err = io.ReadFull(f, block)
-		if err != nil || n != int(len(block)) {
+		if err != nil {
 			return fmt.Errorf("failed to read %d of %d bytes for %s metadata block: %v", n, mbh.Length, mbh.Type, err)
 		}
 
@@ -791,31 +783,21 @@ func (m *Metadata) Read(f io.Reader) error {
 			if m.Streaminfo.IsPopulated {
 				return fmt.Errorf("two %s blocks encountered", mbh.Type)
 			}
-
-			sib := new(StreaminfoBlock)
-			if err := sib.Parse(block); err != nil {
+			sib, err := MarshalStreaminfoBlock(block)
+			if err != nil {
 				return err
 			}
-
 			m.Streaminfo = Streaminfo{mbh, sib, true}
 
 		case MetadataVorbisComment:
 			if m.VorbisComment.IsPopulated {
 				return fmt.Errorf("two %s blocks encountered", mbh.Type)
 			}
-
-			vcb := new(VorbisCommentBlock)
-			if err := vcb.Parse(block); err != nil {
-				return err
-			}
-
+			vcb := MarshalVorbisCommentBlock(block)
 			m.VorbisComment = VorbisComment{mbh, vcb, true}
 
 		case MetadataPicture:
-			fpb := new(PictureBlock)
-			if err := fpb.Parse(block); err != nil {
-				return err
-			}
+			fpb := MarshalPictureBlock(block)
 			m.Pictures = append(m.Pictures, &Picture{mbh, fpb, true})
 
 		case MetadataPadding:
@@ -828,9 +810,8 @@ func (m *Metadata) Read(f io.Reader) error {
 			if m.Application.IsPopulated {
 				return fmt.Errorf("two %s blocks encountered", mbh.Type)
 			}
-
-			ab := new(ApplicationBlock)
-			if err := ab.Parse(block); err != nil {
+			ab, err := MarshalApplicationBlock(block)
+			if err != nil {
 				return err
 			}
 			m.Application = Application{mbh, ab, true}
@@ -843,19 +824,16 @@ func (m *Metadata) Read(f io.Reader) error {
 				return fmt.Errorf("%s block length is not a multiple of %d", mbh.Type, (SeekpointBlockLen / 8))
 			}
 
-			if err := m.Seektable.Parse(block); err != nil {
-				return err
-			}
-			m.Seektable.Header = mbh
-			m.Seektable.IsPopulated = true
+			st := MarshalSeekpointBlock(block)
+			m.Seektable = Seektable{mbh, st, true}
 
 		case MetadataCuesheet:
 			if m.Cuesheet.IsPopulated {
 				return fmt.Errorf("two %s blocks encountered", mbh.Type)
 			}
 
-			cb := new(CuesheetBlock)
-			if err := cb.Parse(block); err != nil {
+			cb, err := MarshalCuesheetBlock(block)
+			if err != nil {
 				return err
 			}
 			m.Cuesheet = Cuesheet{mbh, cb, true}

@@ -21,10 +21,9 @@ func TestParseMetadata44k16Mono(t *testing.T) {
 
 	wantSi := Streaminfo{
 		Header: &MetadataBlockHeader{
-			Type:       MetadataStreaminfo,
-			Length:     34,
-			Last:       false,
-			SeekPoints: 0,
+			Type:   MetadataStreaminfo,
+			Length: 34,
+			Last:   false,
 		},
 		Data: &StreaminfoBlock{
 			MinBlockSize:  4096,
@@ -45,10 +44,9 @@ func TestParseMetadata44k16Mono(t *testing.T) {
 
 	wantVc := VorbisComment{
 		Header: &MetadataBlockHeader{
-			Type:       MetadataVorbisComment,
-			Length:     57,
-			Last:       false,
-			SeekPoints: 0,
+			Type:   MetadataVorbisComment,
+			Length: 57,
+			Last:   false,
 		},
 		Data: &VorbisCommentBlock{
 			Vendor:        "reference libFLAC 1.2.1 20070917",
@@ -63,10 +61,10 @@ func TestParseMetadata44k16Mono(t *testing.T) {
 
 	wantPad := Padding{
 		Header: &MetadataBlockHeader{
-			Type:       MetadataPadding,
-			Length:     8175,
-			Last:       true,
-			SeekPoints: 0},
+			Type:   MetadataPadding,
+			Length: 8175,
+			Last:   true,
+		},
 		Data:        nil,
 		IsPopulated: true,
 	}
@@ -76,10 +74,9 @@ func TestParseMetadata44k16Mono(t *testing.T) {
 
 	wantSt := Seektable{
 		Header: &MetadataBlockHeader{
-			Type:       MetadataSeektable,
-			Length:     54,
-			Last:       false,
-			SeekPoints: 3,
+			Type:   MetadataSeektable,
+			Length: 54,
+			Last:   false,
 		},
 		Data: []*SeekpointBlock{
 			{SampleNumber: 0, Offset: 0, FrameSamples: 4096},
@@ -90,6 +87,9 @@ func TestParseMetadata44k16Mono(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got.Seektable, wantSt) {
 		t.Errorf("Seektable differs:\ngot:  %+v\nwant: %+v", got.Seektable, wantSt)
+	}
+	if got, want := got.Seektable.TotalPoints(), wantSt.TotalPoints(); got != want {
+		t.Errorf("Seektable TotalPoints differ: got %d, want %d", got, want)
 	}
 }
 
@@ -105,10 +105,9 @@ func TestParseMetadata44k16Stereo(t *testing.T) {
 
 	wantSi := Streaminfo{
 		Header: &MetadataBlockHeader{
-			Type:       MetadataStreaminfo,
-			Length:     34,
-			Last:       false,
-			SeekPoints: 0,
+			Type:   MetadataStreaminfo,
+			Length: 34,
+			Last:   false,
 		},
 		Data: &StreaminfoBlock{
 			MinBlockSize:  4608,
@@ -129,10 +128,9 @@ func TestParseMetadata44k16Stereo(t *testing.T) {
 
 	wantVc := VorbisComment{
 		Header: &MetadataBlockHeader{
-			Type:       MetadataVorbisComment,
-			Length:     169,
-			Last:       false,
-			SeekPoints: 0,
+			Type:   MetadataVorbisComment,
+			Length: 169,
+			Last:   false,
 		},
 		Data: &VorbisCommentBlock{
 			Vendor:        "reference libFLAC 1.1.0 20030126",
@@ -162,10 +160,9 @@ func TestParseMetadata44k16Stereo(t *testing.T) {
 
 	wantCs := Cuesheet{
 		Header: &MetadataBlockHeader{
-			Type:       MetadataCuesheet,
-			Length:     588,
-			Last:       false,
-			SeekPoints: 0,
+			Type:   MetadataCuesheet,
+			Length: 588,
+			Last:   false,
 		},
 		Data: &CuesheetBlock{
 			MediaCatalogNumber: isrc,
@@ -221,10 +218,10 @@ func TestParseMetadata44k16Stereo(t *testing.T) {
 
 	wantSt := Seektable{
 		Header: &MetadataBlockHeader{
-			Type:       MetadataSeektable,
-			Length:     108,
-			Last:       false,
-			SeekPoints: 6},
+			Type:   MetadataSeektable,
+			Length: 108,
+			Last:   false,
+		},
 		Data: []*SeekpointBlock{
 			{SampleNumber: 0, Offset: 0, FrameSamples: 4608},
 			{SampleNumber: 41472, Offset: 11852, FrameSamples: 4608},
@@ -245,10 +242,9 @@ func TestParseMetadata44k16Stereo(t *testing.T) {
 	}
 	wantPic := &Picture{
 		Header: &MetadataBlockHeader{
-			Type:       MetadataPicture,
-			Length:     199,
-			Last:       false,
-			SeekPoints: 0,
+			Type:   MetadataPicture,
+			Length: 199,
+			Last:   false,
 		},
 		Data: &PictureBlock{
 			PictureType: "Cover (front)",
@@ -269,10 +265,9 @@ func TestParseMetadata44k16Stereo(t *testing.T) {
 
 	wantPad := Padding{
 		Header: &MetadataBlockHeader{
-			Type:       MetadataPadding,
-			Length:     3060,
-			Last:       true,
-			SeekPoints: 0,
+			Type:   MetadataPadding,
+			Length: 3060,
+			Last:   true,
 		},
 		IsPopulated: true,
 	}
